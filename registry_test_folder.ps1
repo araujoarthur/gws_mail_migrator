@@ -1,0 +1,1 @@
+.\gmm.exe registry map folder --in=arthurgaldino --target=arthur.galdino@pensepneus.com.br --dest=arthur@jonaspneus.com.br

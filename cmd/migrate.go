@@ -29,6 +29,7 @@ type migrateOptions struct {
 	order         migrator.DateOrder
 	orderRaw      string
 	workers       int
+	verbosity     bool
 }
 
 func newMigrateCommand() *cobra.Command {
@@ -140,6 +141,14 @@ func newMigrateCommand() *cobra.Command {
 		"limit",
 		0,
 		"maximum number of emails to process",
+	)
+
+	flags.BoolVarP(
+		&options.verbosity,
+		"verbosity",
+		"v",
+		false,
+		"enable log verbosity",
 	)
 
 	if err := cmd.MarkFlagRequired("target"); err != nil {
