@@ -58,6 +58,8 @@ func (m *Migrator) runWorker(ctx context.Context, workerID int) error {
 			)
 		}
 
+		m.reportSuccess()
+
 		if m.logger != nil {
 			m.logger.Printf(
 				"worker %d: migrated email %d (%s)",

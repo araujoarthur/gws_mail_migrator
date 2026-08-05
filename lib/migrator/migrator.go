@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/araujoarthur/gws_mail_migrator/lib/impersonator"
 )
@@ -16,11 +17,17 @@ type EmailInserter interface {
 	InsertRawEML(ctx context.Context, content io.Reader) (impersonator.InsertResult, error)
 }
 
+type ProgressReporter interface {
+	Add(int) error
+}
+
 type Migrator struct {
-	manager   *MigrationManager
-	inserter  EmailInserter
-	emlFolder string
-	logger    *log.Logger
+	manager      *MigrationManager
+	inserter     EmailInserter
+	emlFolder    string
+	logger       *log.Logger
+	progress     ProgressReporter
+	successCount atomic.Int64
 }
 
 func NewMigrator(
@@ -28,12 +35,14 @@ func NewMigrator(
 	inserter EmailInserter,
 	emlFolder string,
 	logger *log.Logger,
+	progress ProgressReporter,
 ) *Migrator {
 	return &Migrator{
 		manager:   manager,
 		inserter:  inserter,
 		emlFolder: emlFolder,
 		logger:    logger,
+		progress:  progress,
 	}
 }
 
@@ -41,7 +50,16 @@ func (m *Migrator) Close() error {
 	return m.manager.Close()
 }
 
-// Migrate ONE claimed email logic
+// reportProgress provides the means to report progress after a successful operation
+func (m *Migrator) reportSuccess() {
+	m.successCount.Add(1)
+
+	if m.progress != nil {
+		m.progress.Add(1)
+	}
+}
+
+// migrateEmail provides the logic for the unit of work of migrating one claimed email.
 func (m *Migrator) migrateEmail(ctx context.Context, email Email) error {
 	filename := filepath.Clean(email.Filename)
 	root := filepath.Clean(m.emlFolder)
@@ -77,4 +95,8 @@ func (m *Migrator) migrateEmail(ctx context.Context, email Email) error {
 	)
 
 	return nil
+}
+
+func (m *Migrator) SuccessCount() int64 {
+	return m.successCount.Load()
 }

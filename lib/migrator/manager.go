@@ -103,6 +103,37 @@ func (m *MigrationManager) SetLimit(l int) error {
 }
 
 // Type Methods
+func (m *MigrationManager) CountEligible(ctx context.Context) (int64, error) {
+	const query = `
+		SELECT COUNT(*)
+		FROM emails
+		WHERE migration_status IN (@pending, @failed)
+		  AND retry_count < @max_attempts
+		  AND migration_target_address = @target
+		  AND (@destination = '' OR dest = @destination);
+	`
+
+	var count int64
+	err := m.db.QueryRowContext(
+		ctx,
+		query,
+		sql.Named("pending", StatusPending),
+		sql.Named("failed", StatusFailed),
+		sql.Named("max_attempts", m.MaxAttempts),
+		sql.Named("target", m.targetAddress),
+		sql.Named("destination", m.destination),
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count eligible emails: %w", err)
+	}
+
+	if m.limit > 0 && count > m.limit {
+		count = m.limit
+	}
+
+	return count, nil
+}
+
 func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 	// claim limit guard
 	if !m.reserveClaim() {
