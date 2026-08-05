@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +25,7 @@ type Migrator struct {
 	manager      *MigrationManager
 	inserter     EmailInserter
 	emlFolder    string
-	logger       *log.Logger
+	logger       *slog.Logger
 	progress     ProgressReporter
 	successCount atomic.Int64
 }
@@ -34,14 +34,14 @@ func NewMigrator(
 	manager *MigrationManager,
 	inserter EmailInserter,
 	emlFolder string,
-	logger *log.Logger,
+	logger *slog.Logger,
 	progress ProgressReporter,
 ) *Migrator {
 	return &Migrator{
 		manager:   manager,
 		inserter:  inserter,
 		emlFolder: emlFolder,
-		logger:    logger,
+		logger:    logger.With("component", "migrator"),
 		progress:  progress,
 	}
 }
@@ -85,13 +85,13 @@ func (m *Migrator) migrateEmail(ctx context.Context, email Email) error {
 		return fmt.Errorf("insert email %q: %w", email.Filename, err)
 	}
 
-	m.logger.Printf(
-		"Gmail inserted local email %d: gmail_id=%s thread_id=%s labels=%v target=%s",
-		email.ID,
-		result.ID,
-		result.ThreadID,
-		result.LabelIDs,
-		email.MigrationTargetAddress,
+	m.logger.Info(
+		"gmail inserted local email",
+		"email_id", email.ID,
+		"result_id", result.ID,
+		"result_thread_id", result.ThreadID,
+		"label_ids", result.LabelIDs,
+		"target", email.MigrationTargetAddress,
 	)
 
 	return nil

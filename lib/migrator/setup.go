@@ -3,13 +3,14 @@ package migrator
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
 	_ "modernc.org/sqlite"
 )
 
-func InitialDBSetup() error {
+func InitialDBSetup(logger *slog.Logger) error {
 	if exists, err := utils.FileExists(utils.MANAGER_DB_PATH); exists || err != nil {
 		if err != nil {
 			return fmt.Errorf("failed to setup: %w", err)
@@ -56,7 +57,7 @@ func InitialDBSetup() error {
 		return fmt.Errorf("failed to setup schema: %w", err)
 	}
 
-	fmt.Println("Database didn't exist but was successfully created.")
+	logger.Info("created the database schema successfully")
 	return nil
 }
 

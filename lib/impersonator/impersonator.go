@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -35,6 +36,7 @@ type Impersonator struct {
 	tokenManager TokenManager
 	//emlFilesFolderPath string
 	httpClient *http.Client
+	logger     *slog.Logger
 }
 
 func LoadCredentialsFile(path string) (SACredentials, error) {
@@ -51,7 +53,7 @@ func LoadCredentialsFile(path string) (SACredentials, error) {
 	return credentials, nil
 }
 
-func NewImpersonator(credentialsPath string, targetUser string, targetScopes string) (*Impersonator, error) {
+func NewImpersonator(credentialsPath string, targetUser string, targetScopes string, logger *slog.Logger) (*Impersonator, error) {
 	credentials, err := LoadCredentialsFile(credentialsPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading credentials file: %w", err)
@@ -63,8 +65,10 @@ func NewImpersonator(credentialsPath string, targetUser string, targetScopes str
 			targetUser:  targetUser,
 			scopes:      targetScopes,
 			credentials: credentials,
+			logger:      logger.With("component", "token-manager"),
 		},
 		httpClient: &http.Client{Timeout: 30 * time.Second},
+		logger:     logger.With("component", "impersonator"),
 	}, nil
 }
 

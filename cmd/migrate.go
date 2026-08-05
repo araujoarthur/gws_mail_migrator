@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync/atomic"
 
 	"github.com/araujoarthur/gws_mail_migrator/lib/impersonator"
+	"github.com/araujoarthur/gws_mail_migrator/lib/logging"
 	"github.com/araujoarthur/gws_mail_migrator/lib/migrator"
 	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
 	"github.com/schollz/progressbar/v3"
@@ -148,7 +148,7 @@ func newMigrateCommand() *cobra.Command {
 		"verbosity",
 		"v",
 		false,
-		"enable log verbosity",
+		"enable logging verbosity",
 	)
 
 	if err := cmd.MarkFlagRequired("target"); err != nil {
@@ -159,7 +159,26 @@ func newMigrateCommand() *cobra.Command {
 }
 
 func runMigration(ctx context.Context, options migrateOptions) error {
-	manager, err := migrator.NewMigrationManager(options.targetAddress, options.destination, options.maxAttempts)
+	logger, loggerCloser, err := logging.New(utils.LOG_FILE_PATH, options.verbosity)
+	if err != nil {
+		panic(fmt.Errorf("initializing logging capabilities: %w", err))
+	}
+	defer loggerCloser()
+
+	commandLogger := logger.With("command", "migrate")
+	commandLogger.Debug("migrate ran with options",
+		"destination", options.destination,
+		"limit", options.limit,
+		"limit_set", options.limitSet,
+		"max_attempts", options.maxAttempts,
+		"order", options.order,
+		"order_raw", options.orderRaw,
+		"target_address", options.targetAddress,
+		"verbosity", options.verbosity,
+		"workers", options.workers,
+	)
+
+	manager, err := migrator.NewMigrationManager(options.targetAddress, options.destination, options.maxAttempts, commandLogger)
 	if err != nil {
 		return fmt.Errorf("create migration manager: %w", err)
 	}
@@ -186,6 +205,7 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 		utils.CREDENTIALS_PATH,
 		options.targetAddress,
 		impersonator.GmailInsertScope+" "+impersonator.GmailReadOnlyScope,
+		commandLogger,
 	)
 	if err != nil {
 		return fmt.Errorf("create the impersonator: %w", err)
@@ -198,12 +218,6 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 		progressbar.OptionSetWidth(30),
 		progressbar.OptionSetWriter(os.Stderr),
 		progressbar.OptionClearOnFinish(),
-	)
-
-	logger := log.New(
-		os.Stdout,
-		"",
-		log.LstdFlags,
 	)
 
 	migr := migrator.NewMigrator(manager, imp, utils.EMAILS_ROOT_PATH, logger, bar)

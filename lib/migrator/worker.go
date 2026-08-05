@@ -36,11 +36,11 @@ func (m *Migrator) runWorker(ctx context.Context, workerID int) error {
 			}
 
 			if m.logger != nil {
-				m.logger.Printf(
-					"worker %d: email %d failed: %v",
-					workerID,
-					email.ID,
-					err,
+				m.logger.Warn(
+					"worker failed to insert email",
+					"worker_id", workerID,
+					"email_id", email.ID,
+					"error", err,
 				)
 			}
 
@@ -61,11 +61,11 @@ func (m *Migrator) runWorker(ctx context.Context, workerID int) error {
 		m.reportSuccess()
 
 		if m.logger != nil {
-			m.logger.Printf(
-				"worker %d: migrated email %d (%s)",
-				workerID,
-				email.ID,
-				email.Filename,
+			m.logger.Info(
+				"worker migrated email",
+				"worker_id", workerID,
+				"email_id", email.ID,
+				"email_filename", email.Filename,
 			)
 		}
 	}

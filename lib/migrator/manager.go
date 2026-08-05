@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -41,6 +42,7 @@ type MigrationManager struct {
 	dateOrder     DateOrder
 	limit         int64
 	claimCount    atomic.Int64
+	logger        *slog.Logger
 }
 
 type Email struct {
@@ -53,7 +55,18 @@ type Email struct {
 	MigrationTargetAddress string
 }
 
-func NewMigrationManager(targetAddress string, destination string, maxAttempts int) (*MigrationManager, error) {
+func (o DateOrder) String() string {
+	switch o {
+	case DateOrderOldestFirst:
+		return "oldest"
+	case DateOrderNewestFirst:
+		return "newest"
+	default:
+		return "unknown"
+	}
+}
+
+func NewMigrationManager(targetAddress string, destination string, maxAttempts int, logger *slog.Logger) (*MigrationManager, error) {
 	db, err := sql.Open("sqlite", utils.MANAGER_DB_PATH)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup database (open): %w", err)
@@ -84,6 +97,7 @@ func NewMigrationManager(targetAddress string, destination string, maxAttempts i
 		targetAddress: strings.TrimSpace(targetAddress),
 		destination:   strings.TrimSpace(destination),
 		dateOrder:     DateOrderNewestFirst,
+		logger:        logger.With("component", "migration-manager"),
 	}, nil
 }
 

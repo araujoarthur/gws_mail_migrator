@@ -3,20 +3,21 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 
+	"github.com/araujoarthur/gws_mail_migrator/lib/logging"
 	"github.com/araujoarthur/gws_mail_migrator/lib/migrator"
 	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
 	"github.com/spf13/cobra"
 )
 
 type mapFolderCommandFlags struct {
-	folder   string
-	listOnly bool
-	target   string
-	dest     string
+	folder    string
+	listOnly  bool
+	target    string
+	dest      string
+	verbosity bool
 }
 
 func newRegistryMapFolderCommand() *cobra.Command {
@@ -83,10 +84,26 @@ func newRegistryMapFolderCommand() *cobra.Command {
 		"the single user email address this email's were addressed to in the original migration space",
 	)
 
+	comd.Flags().BoolVarP(
+		&flags.verbosity,
+		"verbosity",
+		"v",
+		false,
+		"enable logging verbosity",
+	)
+
 	return comd
 }
 
 func runMapFolder(ctx context.Context, flags mapFolderCommandFlags) error {
+
+	logger, logCloser, err := logging.New("./migration.log", flags.verbosity)
+	if err != nil {
+		panic(fmt.Errorf("initializing logging capabilities: %w", err))
+	}
+	defer logCloser()
+
+	commandLogger := logger.With("command", "map-folder")
 
 	mailList, err := utils.ListEmailFiles(filepath.Join(utils.EMAILS_ROOT_PATH, flags.folder))
 	if err != nil {
@@ -101,15 +118,16 @@ func runMapFolder(ctx context.Context, flags mapFolderCommandFlags) error {
 		return nil
 	}
 
-	manager, err := migrator.NewMigrationManager(flags.target, flags.dest, 5)
+	manager, err := migrator.NewMigrationManager(flags.target, flags.dest, 5, commandLogger)
 	if err != nil {
+		commandLogger.Error("failed to create migration manager", "error", err)
 		return err
 	}
 
 	for idx, fpath := range mailList {
 		message, err := utils.ReadEmailFile(fpath)
 		if err != nil {
-			log.Printf("failed to read file [%d - %s]: %v\n", idx, fpath, err)
+			commandLogger.Error("failed to read file", "index", idx, "filepath", fpath, "error", err)
 			continue
 		}
 
@@ -124,11 +142,11 @@ func runMapFolder(ctx context.Context, flags mapFolderCommandFlags) error {
 
 		id, err := manager.AddEmail(ctx, mailMessage)
 		if err != nil {
-			log.Printf("failed to add entry id:%d [%d - %s]: %v\n", id, idx, fpath, err)
+			commandLogger.Error("failed to add entry", "id", id, "index", idx, "filepath", fpath, "error", err)
 			continue
 		}
 
-		log.Printf("New File Added (%d)\n", id)
+		commandLogger.Info("successfully inserted", "id", id, "index", idx, "filepath", fpath)
 	}
 
 	return nil

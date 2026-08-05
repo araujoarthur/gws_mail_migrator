@@ -3,3 +3,5 @@ ClientID.txt
 emls/*
 *.exe
 *.db
+*.log
+*.ps1

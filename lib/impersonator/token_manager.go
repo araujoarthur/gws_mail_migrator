@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -32,6 +33,7 @@ type TokenManager struct {
 	scopes      string
 	renewChan   chan struct{} // channel used to broadcast renewal signals
 	credentials SACredentials
+	logger      *slog.Logger
 }
 
 func NewTokenManager() *TokenManager {
