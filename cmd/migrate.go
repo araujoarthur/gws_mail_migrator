@@ -1,0 +1,185 @@
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"strings"
+
+	"github.com/araujoarthur/gws_mail_migrator/lib/impersonator"
+	"github.com/araujoarthur/gws_mail_migrator/lib/migrator"
+	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
+	"github.com/spf13/cobra"
+)
+
+type migrateOptions struct {
+	targetAddress string
+	destination   string
+	maxAttempts   int
+	limit         int
+	limitSet      bool
+	order         migrator.DateOrder
+	orderRaw      string
+	workers       int
+}
+
+func newMigrateCommand() *cobra.Command {
+	var options migrateOptions
+
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Migrate pending emails to a target mailbox",
+		Args:  cobra.NoArgs,
+
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			options.targetAddress = strings.TrimSpace(
+				options.targetAddress,
+			)
+			options.destination = strings.TrimSpace(
+				options.destination,
+			)
+
+			// target validation
+			if options.targetAddress == "" {
+				return fmt.Errorf("target address cannot be empty")
+			}
+
+			// worker count validation
+			if options.workers < 1 {
+				return fmt.Errorf("workers must be at least 1")
+			}
+
+			// max attempts validation
+			if options.maxAttempts < 1 {
+				return fmt.Errorf("max attempts must be at least 1")
+			}
+
+			// limit validation
+			options.limitSet = cmd.Flags().Changed("limit")
+
+			if options.limitSet && options.limit < 1 {
+				return fmt.Errorf("limit must be at least 1")
+			}
+
+			// order validation
+			options.orderRaw = strings.ToLower(
+				strings.TrimSpace(options.orderRaw),
+			)
+
+			switch options.orderRaw {
+			case "oldest", "newest":
+				dateOrder := migrator.DateOrderOldestFirst
+				if options.orderRaw == "newest" {
+					dateOrder = migrator.DateOrderNewestFirst
+				}
+
+				options.order = dateOrder
+			default:
+				return fmt.Errorf(
+					"invalid order %q: expected oldest or newest",
+					options.orderRaw,
+				)
+			}
+
+			return nil
+		},
+
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMigration(cmd.Context(), options)
+		},
+	}
+
+	flags := cmd.Flags()
+
+	flags.StringVar(
+		&options.targetAddress,
+		"target",
+		"",
+		"mailbox that will receive the migrated emails",
+	)
+
+	flags.StringVar(
+		&options.destination,
+		"dest",
+		"",
+		"only migrate emails with this original destination",
+	)
+
+	flags.StringVar(
+		&options.orderRaw,
+		"order",
+		"newest",
+		"migration order: 'newest' or 'oldest'",
+	)
+
+	flags.IntVarP(
+		&options.workers,
+		"workers",
+		"w",
+		4,
+		"number of concurrent migration workers",
+	)
+
+	flags.IntVar(
+		&options.maxAttempts,
+		"max-attempts",
+		5,
+		"maximum number of attempts for each entry",
+	)
+
+	flags.IntVar(
+		&options.limit,
+		"limit",
+		0,
+		"maximum number of emails to process",
+	)
+
+	if err := cmd.MarkFlagRequired("target"); err != nil {
+		panic(err)
+	}
+
+	return cmd
+}
+
+func runMigration(ctx context.Context, options migrateOptions) error {
+	manager, err := migrator.NewMigrationManager(options.targetAddress, options.destination, options.maxAttempts)
+	if err != nil {
+		return fmt.Errorf("create migration manager: %w", err)
+	}
+	defer manager.Close()
+
+	// Setting manager options
+	manager.SetDateOrder(options.order)
+
+	if err := manager.SetLimit(options.limit); err != nil {
+		return fmt.Errorf("set limit: %w", err)
+	}
+
+	// Creating impersonator
+	imp, err := impersonator.NewImpersonator(
+		utils.CREDENTIALS_PATH,
+		options.targetAddress,
+		impersonator.GmailInsertScope+" "+impersonator.GmailReadOnlyScope,
+	)
+	if err != nil {
+		return fmt.Errorf("create the impersonator: %w", err)
+	}
+
+	logger := log.New(
+		os.Stdout,
+		"",
+		log.LstdFlags,
+	)
+
+	migr := migrator.NewMigrator(manager, imp, utils.EMAILS_ROOT_PATH, logger)
+
+	if err := migr.Run(
+		ctx,
+		options.workers,
+	); err != nil {
+		return fmt.Errorf("run migration: %w", err)
+	}
+
+	return nil
+}

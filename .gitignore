@@ -1,0 +1,5 @@
+credentials.json
+ClientID.txt
+emls/*
+*.exe
+*.db
