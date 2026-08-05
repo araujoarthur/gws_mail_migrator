@@ -2,16 +2,23 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/araujoarthur/gws_mail_migrator/lib/impersonator"
 	"github.com/araujoarthur/gws_mail_migrator/lib/migrator"
 	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
+
+var ErrNoEligibleEmails = errors.New("no eligible emails")
+
+var successCount atomic.Int64
 
 type migrateOptions struct {
 	targetAddress string
@@ -156,6 +163,15 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 		return fmt.Errorf("set limit: %w", err)
 	}
 
+	total, err := manager.CountEligible(ctx)
+	if err != nil {
+		return fmt.Errorf("counting eligibles: %w", err)
+	}
+
+	if total == 0 {
+		return ErrNoEligibleEmails
+	}
+
 	// Creating impersonator
 	imp, err := impersonator.NewImpersonator(
 		utils.CREDENTIALS_PATH,
@@ -166,18 +182,39 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 		return fmt.Errorf("create the impersonator: %w", err)
 	}
 
+	bar := progressbar.NewOptions64(
+		total,
+		progressbar.OptionSetDescription("Migrating emails"),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetWidth(30),
+		progressbar.OptionSetWriter(os.Stderr),
+		progressbar.OptionClearOnFinish(),
+	)
+
 	logger := log.New(
 		os.Stdout,
 		"",
 		log.LstdFlags,
 	)
 
-	migr := migrator.NewMigrator(manager, imp, utils.EMAILS_ROOT_PATH, logger)
+	migr := migrator.NewMigrator(manager, imp, utils.EMAILS_ROOT_PATH, logger, bar)
 
-	if err := migr.Run(
+	runErr := migr.Run(
 		ctx,
 		options.workers,
-	); err != nil {
+	)
+
+	// removes the progress display before printing the summary.
+	_ = bar.Clear()
+
+	fmt.Fprintf(
+		os.Stdout,
+		"Migration complete: %d of %d emails succeeded\n",
+		migr.SuccessCount(),
+		total,
+	)
+
+	if runErr != nil {
 		return fmt.Errorf("run migration: %w", err)
 	}
 
