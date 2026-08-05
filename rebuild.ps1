@@ -1,1 +1,0 @@
-go build && rm .\gmm.exe && mv ./gws_mail_migrator.exe ./gmm.exe && rm manager.db 
