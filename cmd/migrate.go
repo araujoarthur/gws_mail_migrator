@@ -211,35 +211,50 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 		return fmt.Errorf("create the impersonator: %w", err)
 	}
 
-	bar := progressbar.NewOptions64(
-		total,
-		progressbar.OptionSetDescription("Migrating emails"),
-		progressbar.OptionShowCount(),
-		progressbar.OptionSetWidth(30),
-		progressbar.OptionSetWriter(os.Stderr),
-		progressbar.OptionClearOnFinish(),
-	)
+	var reporter migrator.ProgressReporter
+	var bar *progressbar.ProgressBar
+	if !options.verbosity {
+		bar = progressbar.NewOptions64(
+			total,
+			progressbar.OptionSetDescription("Migrating emails"),
+			progressbar.OptionShowCount(),
+			progressbar.OptionSetWidth(30),
+			progressbar.OptionSetWriter(os.Stdout),
+		)
 
-	migr := migrator.NewMigrator(manager, imp, utils.EMAILS_ROOT_PATH, logger, bar)
+		reporter = bar
+	}
+
+	migr := migrator.NewMigrator(manager, imp, utils.EMAILS_ROOT_PATH, logger, reporter)
 
 	runErr := migr.Run(
 		ctx,
 		options.workers,
 	)
 
+	succeeded := migr.SuccessCount()
 	// removes the progress display before printing the summary.
-	_ = bar.Clear()
+	if bar != nil {
+		if succeeded == total {
+			_ = bar.Finish()
+		}
+
+		// Move subsequent output onto a clean line.
+		fmt.Fprintln(os.Stdout)
+	}
 
 	fmt.Fprintf(
 		os.Stdout,
 		"Migration complete: %d of %d emails succeeded\n",
-		migr.SuccessCount(),
+		succeeded,
 		total,
 	)
 
 	if runErr != nil {
+		commandLogger.Error("failed during migration run", "error", err)
 		return fmt.Errorf("run migration: %w", err)
 	}
 
+	commandLogger.Info("migration completed", "success_count", migr.SuccessCount(), "total", total)
 	return nil
 }
