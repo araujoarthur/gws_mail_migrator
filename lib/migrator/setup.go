@@ -13,6 +13,7 @@ import (
 const schemaEmailsTable = `
 		CREATE TABLE IF NOT EXISTS emails (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			message_id TEXT NOT NULL,
 			filename TEXT NOT NULL,
 			file_hash BLOB NOT NULL,
 			sender TEXT NOT NULL,

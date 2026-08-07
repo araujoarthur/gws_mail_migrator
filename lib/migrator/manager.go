@@ -51,6 +51,7 @@ type MigrationManager struct {
 
 type Email struct {
 	ID                     int64
+	MessageID              string
 	Filename               string
 	FileHash               []byte
 	Sender                 string
@@ -192,6 +193,7 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 	)
 	RETURNING
 		id,
+		message_id,
 		filename,
 		file_hash,
 		sender,
@@ -213,6 +215,7 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		sql.Named("destination", m.destination),
 	).Scan(
 		&email.ID,
+		&email.MessageID,
 		&email.Filename,
 		&email.FileHash,
 		&email.Sender,
@@ -338,6 +341,7 @@ func (m *MigrationManager) AddEmail(
 
 	const query = `
 		INSERT INTO emails (
+			message_id,
 			filename,
 			file_hash,
 			sender,
@@ -347,7 +351,7 @@ func (m *MigrationManager) AddEmail(
 			migration_status,
 			retry_count
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
 		ON CONFLICT (
 			file_hash,
 			dest,
@@ -362,6 +366,7 @@ func (m *MigrationManager) AddEmail(
 	err := m.db.QueryRowContext(
 		ctx,
 		query,
+		email.MessageID,
 		email.Filename,
 		email.FileHash,
 		email.Sender,

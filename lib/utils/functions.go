@@ -88,6 +88,11 @@ func ReadEmailFile(path string) (EmailMetadata, error) {
 		return EmailMetadata{}, err
 	}
 
+	messageID := strings.TrimSpace(msg.Header.Get("Message-ID"))
+	if messageID == "" {
+		return EmailMetadata{}, errors.New("email has no Message-ID header")
+	}
+
 	decoder := new(mime.WordDecoder)
 
 	subject, err := decoder.DecodeHeader(msg.Header.Get("Subject"))
@@ -96,11 +101,12 @@ func ReadEmailFile(path string) (EmailMetadata, error) {
 	}
 
 	return EmailMetadata{
-		Filename: path,
-		Sender:   from.Address,
-		Date:     emailDate,
-		FileHash: filehash,
-		Subject:  subject,
+		MessageID: messageID,
+		Filename:  path,
+		Sender:    from.Address,
+		Date:      emailDate,
+		FileHash:  filehash,
+		Subject:   subject,
 	}, nil
 }
 

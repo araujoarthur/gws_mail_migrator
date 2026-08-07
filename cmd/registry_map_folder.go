@@ -132,6 +132,7 @@ func runMapFolder(ctx context.Context, flags mapFolderCommandFlags) error {
 		}
 
 		mailMessage := migrator.Email{
+			MessageID:              message.MessageID,
 			Filename:               message.Filename,
 			Sender:                 message.Sender,
 			FileHash:               message.FileHash,
