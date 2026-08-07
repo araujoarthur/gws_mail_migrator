@@ -1,9 +1,12 @@
 package logging
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
+
+	"github.com/gofrs/uuid/v5"
 )
 
 func New(path string, verbose bool) (*slog.Logger, func() error, error) {
@@ -28,6 +31,11 @@ func New(path string, verbose bool) (*slog.Logger, func() error, error) {
 		Level: level,
 	})
 
-	logger := slog.New(handler)
+	runUUID, err := uuid.NewV7()
+	if err != nil {
+		panic(fmt.Errorf("generate log uuid: %w", err))
+	}
+
+	logger := slog.New(handler).With("run_id", runUUID.String())
 	return logger, file.Close, nil
 }

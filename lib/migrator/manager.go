@@ -24,25 +24,29 @@ const (
 	StatusFailed
 )
 
-type DateOrder int
+type MigrationFlag int
+
+const MigrationFlagEmpty MigrationFlag = 0
 
 const (
-	DateOrderNewestFirst DateOrder = iota
-	DateOrderOldestFirst
+	MigrationFlagModeStandard MigrationFlag = 1 << iota
+	MigrationFlagModeDelta
+	MigrationFlagOrderNewestFirst
+	MigrationFlagOrderOldestFirst
 )
 
 var ErrNoPendingEmails = errors.New("no pending emails")
 var ErrClaimLimitReached = errors.New("claim limit reached")
 
 type MigrationManager struct {
-	db            *sql.DB
-	targetAddress string
-	destination   string
-	MaxAttempts   int
-	dateOrder     DateOrder
-	limit         int64
-	claimCount    atomic.Int64
-	logger        *slog.Logger
+	db             *sql.DB
+	targetAddress  string
+	destination    string
+	MaxAttempts    int
+	migrationFlags MigrationFlag
+	limit          int64
+	claimCount     atomic.Int64
+	logger         *slog.Logger
 }
 
 type Email struct {
@@ -55,14 +59,27 @@ type Email struct {
 	MigrationTargetAddress string
 }
 
-func (o DateOrder) String() string {
-	switch o {
-	case DateOrderOldestFirst:
-		return "oldest"
-	case DateOrderNewestFirst:
-		return "newest"
-	default:
-		return "unknown"
+func (m MigrationFlag) Has(mf MigrationFlag) bool {
+	return m&mf != 0
+}
+
+func (m MigrationFlag) Validate() error {
+	if m.Has(MigrationFlagModeDelta) && m.Has(MigrationFlagModeStandard) {
+		return fmt.Errorf("flags MigrationFlagModeDelta and MigrationFlagModeStandard cannot coexist")
+	}
+
+	if m.Has(MigrationFlagOrderNewestFirst) && m.Has(MigrationFlagOrderOldestFirst) {
+		return fmt.Errorf("flags MigrationFlagOrderNewestFirst and MigrationFlagOldestFirst cannot coexist")
+	}
+
+	return nil
+}
+
+func (m MigrationFlag) GetOrderString() string {
+	if m.Has(MigrationFlagOrderNewestFirst) {
+		return "DESC"
+	} else {
+		return "ASC"
 	}
 }
 
@@ -92,18 +109,22 @@ func NewMigrationManager(targetAddress string, destination string, maxAttempts i
 	}
 
 	return &MigrationManager{
-		db:            db,
-		MaxAttempts:   maxAttempts,
-		targetAddress: strings.TrimSpace(targetAddress),
-		destination:   strings.TrimSpace(destination),
-		dateOrder:     DateOrderNewestFirst,
-		logger:        logger.With("component", "migration-manager"),
+		db:             db,
+		MaxAttempts:    maxAttempts,
+		targetAddress:  strings.TrimSpace(targetAddress),
+		destination:    strings.TrimSpace(destination),
+		migrationFlags: MigrationFlagEmpty,
+		logger:         logger.With("component", "migration-manager"),
 	}, nil
 }
 
 // Setters for Migration Manager
-func (m *MigrationManager) SetDateOrder(do DateOrder) {
-	m.dateOrder = do
+func (m *MigrationManager) SetFromFlags(fields MigrationFlag) error {
+	if err := m.migrationFlags.Validate(); err != nil {
+		return fmt.Errorf("flag validation: %w", err)
+	}
+	m.migrationFlags = fields
+	return nil
 }
 
 func (m *MigrationManager) SetLimit(l int) error {
@@ -154,10 +175,7 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		return Email{}, ErrClaimLimitReached
 	}
 
-	orderDirection := "DESC"
-	if m.dateOrder == DateOrderOldestFirst {
-		orderDirection = "ASC"
-	}
+	orderDirection := m.migrationFlags.GetOrderString()
 
 	query := fmt.Sprintf(`
 	UPDATE emails

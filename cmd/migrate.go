@@ -21,15 +21,16 @@ var ErrNoEligibleEmails = errors.New("no eligible emails")
 var successCount atomic.Int64
 
 type migrateOptions struct {
-	targetAddress string
-	destination   string
-	maxAttempts   int
-	limit         int
-	limitSet      bool
-	order         migrator.DateOrder
-	orderRaw      string
-	workers       int
-	verbosity     bool
+	targetAddress   string
+	destination     string
+	maxAttempts     int
+	limit           int
+	limitSet        bool
+	orderRaw        string
+	workers         int
+	verbosity       bool
+	deltamigration  bool
+	migration_flags migrator.MigrationFlag
 }
 
 func newMigrateCommand() *cobra.Command {
@@ -70,19 +71,26 @@ func newMigrateCommand() *cobra.Command {
 				return fmt.Errorf("limit must be at least 1")
 			}
 
+			// Flags Build Up
+			options.migration_flags = migrator.MigrationFlagEmpty
+
+			if options.deltamigration {
+				options.migration_flags = options.migration_flags | migrator.MigrationFlagModeDelta
+			} else {
+				options.migration_flags = options.migration_flags | migrator.MigrationFlagModeStandard
+			}
+
 			// order validation
 			options.orderRaw = strings.ToLower(
 				strings.TrimSpace(options.orderRaw),
 			)
 
 			switch options.orderRaw {
-			case "oldest", "newest":
-				dateOrder := migrator.DateOrderOldestFirst
-				if options.orderRaw == "newest" {
-					dateOrder = migrator.DateOrderNewestFirst
-				}
+			case "oldest":
+				options.migration_flags = options.migration_flags | migrator.MigrationFlagOrderOldestFirst
+			case "newest":
+				options.migration_flags = options.migration_flags | migrator.MigrationFlagOrderNewestFirst
 
-				options.order = dateOrder
 			default:
 				return fmt.Errorf(
 					"invalid order %q: expected oldest or newest",
@@ -151,6 +159,14 @@ func newMigrateCommand() *cobra.Command {
 		"enable logging verbosity",
 	)
 
+	flags.BoolVarP(
+		&options.deltamigration,
+		"delta-migration",
+		"d",
+		false,
+		"enables migration in delta mode",
+	)
+
 	if err := cmd.MarkFlagRequired("target"); err != nil {
 		panic(err)
 	}
@@ -171,11 +187,11 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 		"limit", options.limit,
 		"limit_set", options.limitSet,
 		"max_attempts", options.maxAttempts,
-		"order", options.order,
 		"order_raw", options.orderRaw,
 		"target_address", options.targetAddress,
 		"verbosity", options.verbosity,
 		"workers", options.workers,
+		"deltamigration", options.deltamigration,
 	)
 
 	manager, err := migrator.NewMigrationManager(options.targetAddress, options.destination, options.maxAttempts, commandLogger)
@@ -185,14 +201,19 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 	defer manager.Close()
 
 	// Setting manager options
-	manager.SetDateOrder(options.order)
+	if err := manager.SetFromFlags(options.migration_flags); err != nil {
+		commandLogger.Error("failed to set options from flags", "error", err)
+		return fmt.Errorf("set from flags: %w", err)
+	}
 
 	if err := manager.SetLimit(options.limit); err != nil {
+		commandLogger.Error("failed to set limit", "error", err)
 		return fmt.Errorf("set limit: %w", err)
 	}
 
 	total, err := manager.CountEligible(ctx)
 	if err != nil {
+		commandLogger.Error("failed to count eligible", "error", err)
 		return fmt.Errorf("counting eligibles: %w", err)
 	}
 

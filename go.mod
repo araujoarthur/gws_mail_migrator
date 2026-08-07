@@ -3,6 +3,7 @@ module github.com/araujoarthur/gws_mail_migrator
 go 1.26.1
 
 require (
+	github.com/gofrs/uuid/v5 v5.5.1
 	github.com/schollz/progressbar/v3 v3.19.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.22.0
