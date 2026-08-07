@@ -10,26 +10,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func InitialDBSetup(logger *slog.Logger) error {
-	if exists, err := utils.FileExists(utils.MANAGER_DB_PATH); exists || err != nil {
-		if err != nil {
-			return fmt.Errorf("failed to setup: %w", err)
-		}
-
-		return fmt.Errorf("db file already exists")
-	}
-
-	db, err := sql.Open("sqlite", utils.MANAGER_DB_PATH)
-	if err != nil {
-		return fmt.Errorf("failed to setup database (open): %w", err)
-	}
-	defer db.Close()
-
-	if err := db.Ping(); err != nil {
-		return fmt.Errorf("failed to setup database (ping): %w", err)
-	}
-
-	schema := `
+const schemaEmailsTable = `
 		CREATE TABLE IF NOT EXISTS emails (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			filename TEXT NOT NULL,
@@ -53,8 +34,27 @@ func InitialDBSetup(logger *slog.Logger) error {
 			ON emails(migration_target_address, migration_status, date, id);
 		`
 
-	if _, err := db.Exec(schema); err != nil {
-		return fmt.Errorf("failed to setup schema: %w", err)
+func InitialDBSetup(logger *slog.Logger) error {
+	if exists, err := utils.FileExists(utils.MANAGER_DB_PATH); exists || err != nil {
+		if err != nil {
+			return fmt.Errorf("failed to setup: %w", err)
+		}
+
+		return fmt.Errorf("db file already exists")
+	}
+
+	db, err := sql.Open("sqlite", utils.MANAGER_DB_PATH)
+	if err != nil {
+		return fmt.Errorf("failed to setup database (open): %w", err)
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("failed to setup database (ping): %w", err)
+	}
+
+	if _, err := db.Exec(schemaEmailsTable); err != nil {
+		return fmt.Errorf("failed to setup schema for emails table: %w", err)
 	}
 
 	logger.Info("created the database schema successfully")
