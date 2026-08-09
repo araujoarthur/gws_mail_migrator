@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -164,4 +165,60 @@ func (imp *Impersonator) InsertRawEML(
 	}
 
 	return result, nil
+}
+
+func (imp *Impersonator) EmailExists(ctx context.Context, messageID string) (bool, error) {
+	token, err := imp.tokenManager.GetValidToken(ctx)
+	if err != nil {
+		imp.logger.Error("failed to check email existence", "step", "get_valid_token", "error", err)
+		return false, fmt.Errorf("get valid token: %w", err)
+	}
+
+	query := "rfc822msgid:" + messageID
+
+	params := url.Values{}
+	params.Set("q", query)
+	params.Set("maxResults", "1")
+	params.Set("includeSpamTrash", "true")
+
+	apiURL := "https://gmail.googleapis.com/gmail/v1/users/me/messages?" + params.Encode()
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		apiURL,
+		nil,
+	)
+
+	if err != nil {
+		imp.logger.Error("failed to check email existence", "step", "new_request_with_context", "error", err)
+		return false, fmt.Errorf("create message search request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := imp.httpClient.Do(req)
+	if err != nil {
+		imp.logger.Error("failed to check email existence", "step", "do_request", "error", err)
+		return false, fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		imp.logger.Error("failed to check email existence", "step", "check_response", "response_status", resp.Status, "body", strings.TrimSpace(string(body)))
+		return false, fmt.Errorf("Gmail search returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var result struct {
+		Messages []struct {
+			ID string `json:"id"`
+		} `json:"messages"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		imp.logger.Error("failed to check email existence", "step", "decode_gmail_response", "error", err)
+		return false, fmt.Errorf("decode Gmail search response: %w", err)
+	}
+
+	return len(result.Messages) > 0, nil
 }

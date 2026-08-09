@@ -24,17 +24,6 @@ const (
 	StatusFailed
 )
 
-type MigrationFlag int
-
-const MigrationFlagEmpty MigrationFlag = 0
-
-const (
-	MigrationFlagModeStandard MigrationFlag = 1 << iota
-	MigrationFlagModeDelta
-	MigrationFlagOrderNewestFirst
-	MigrationFlagOrderOldestFirst
-)
-
 var ErrNoPendingEmails = errors.New("no pending emails")
 var ErrClaimLimitReached = errors.New("claim limit reached")
 
@@ -47,6 +36,7 @@ type MigrationManager struct {
 	limit          int64
 	claimCount     atomic.Int64
 	logger         *slog.Logger
+	runID          string
 }
 
 type Email struct {
@@ -58,30 +48,6 @@ type Email struct {
 	Destination            string
 	Date                   time.Time
 	MigrationTargetAddress string
-}
-
-func (m MigrationFlag) Has(mf MigrationFlag) bool {
-	return m&mf != 0
-}
-
-func (m MigrationFlag) Validate() error {
-	if m.Has(MigrationFlagModeDelta) && m.Has(MigrationFlagModeStandard) {
-		return fmt.Errorf("flags MigrationFlagModeDelta and MigrationFlagModeStandard cannot coexist")
-	}
-
-	if m.Has(MigrationFlagOrderNewestFirst) && m.Has(MigrationFlagOrderOldestFirst) {
-		return fmt.Errorf("flags MigrationFlagOrderNewestFirst and MigrationFlagOldestFirst cannot coexist")
-	}
-
-	return nil
-}
-
-func (m MigrationFlag) GetOrderString() string {
-	if m.Has(MigrationFlagOrderNewestFirst) {
-		return "DESC"
-	} else {
-		return "ASC"
-	}
 }
 
 func NewMigrationManager(targetAddress string, destination string, maxAttempts int, logger *slog.Logger) (*MigrationManager, error) {
@@ -116,6 +82,7 @@ func NewMigrationManager(targetAddress string, destination string, maxAttempts i
 		destination:    strings.TrimSpace(destination),
 		migrationFlags: MigrationFlagEmpty,
 		logger:         logger.With("component", "migration-manager"),
+		runID:          utils.GetRunID(),
 	}, nil
 }
 
@@ -143,21 +110,32 @@ func (m *MigrationManager) CountEligible(ctx context.Context) (int64, error) {
 	const query = `
 		SELECT COUNT(*)
 		FROM emails
-		WHERE migration_status IN (@pending, @failed)
-		  AND retry_count < @max_attempts
-		  AND migration_target_address = @target
-		  AND (@destination = '' OR dest = @destination);
+		WHERE migration_target_address = @target
+		  	AND (@destination = '' OR dest = @destination)
+			AND (
+				NOT @local_enforce
+				OR (
+					migration_status in (@pending, @failed)
+					AND retry_count < @max_attempts
+				)
+			)
+			AND (
+				last_claim_run_id IS NULL
+				OR last_claim_run_id <> @run_id
+			)
 	`
 
 	var count int64
 	err := m.db.QueryRowContext(
 		ctx,
 		query,
+		sql.Named("target", m.targetAddress),
+		sql.Named("destination", m.destination),
+		sql.Named("local_enforce", m.migrationFlags.Has(MigrationFlagLocalEnforce)),
 		sql.Named("pending", StatusPending),
 		sql.Named("failed", StatusFailed),
 		sql.Named("max_attempts", m.MaxAttempts),
-		sql.Named("target", m.targetAddress),
-		sql.Named("destination", m.destination),
+		sql.Named("run_id", m.runID),
 	).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count eligible emails: %w", err)
@@ -180,14 +158,25 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 
 	query := fmt.Sprintf(`
 	UPDATE emails
-	SET migration_status = @migrating
+	SET 
+		migration_status = @migrating,
+		last_claim_run_id = @run_id
 	WHERE id = (
 		SELECT id
 		FROM emails
-		WHERE migration_status IN (@pending, @failed)
-		  AND retry_count < @max_attempts
-		  AND migration_target_address = @target
-		  AND (@destination = '' OR dest = @destination)
+		WHERE migration_target_address = @target
+			AND (@destination = '' OR dest = @destination)
+			AND (
+				NOT @local_enforce
+				OR (
+					migration_status in (@pending, @failed)
+					AND retry_count < @max_attempts
+				)
+			)
+			AND (
+				last_claim_run_id IS NULL
+				OR last_claim_run_id <> @run_id
+			)
 		ORDER BY date %s, id %s
 		LIMIT 1
 	)
@@ -198,12 +187,11 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		file_hash,
 		sender,
 		dest,
-		date,
 		migration_target_address;
 	`, orderDirection, orderDirection)
 
 	var email Email
-	var dateRaw string
+
 	err := m.db.QueryRowContext(
 		ctx,
 		query,
@@ -213,6 +201,8 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		sql.Named("max_attempts", m.MaxAttempts),
 		sql.Named("target", m.targetAddress),
 		sql.Named("destination", m.destination),
+		sql.Named("run_id", m.runID),
+		sql.Named("local_enforce", m.migrationFlags.Has(MigrationFlagLocalEnforce)),
 	).Scan(
 		&email.ID,
 		&email.MessageID,
@@ -220,7 +210,6 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		&email.FileHash,
 		&email.Sender,
 		&email.Destination,
-		&dateRaw,
 		&email.MigrationTargetAddress,
 	)
 
@@ -233,16 +222,6 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		}
 
 		return Email{}, fmt.Errorf("claim next email: %w", err)
-	}
-
-	email.Date, err = utils.ParseSQLiteTime(dateRaw)
-	if err != nil {
-		return Email{}, fmt.Errorf(
-			"parse date for email %d: %w",
-			email.ID,
-			err,
-		)
-
 	}
 
 	return email, nil

@@ -23,6 +23,7 @@ const schemaEmailsTable = `
 			migration_status INTEGER NOT NULL DEFAULT 0
 				CHECK (migration_status IN (0, 1, 2, 3)),
 			retry_count INTEGER NOT NULL DEFAULT 0,
+			last_claim_run_id TEXT,
 
 			UNIQUE (
 				file_hash,
@@ -32,7 +33,27 @@ const schemaEmailsTable = `
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_emails_pending
-			ON emails(migration_target_address, migration_status, date, id);
+		ON emails(
+    		migration_target_address,
+    		migration_status,
+    		date,
+    		id
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_emails_target_date
+		ON emails(
+    		migration_target_address,
+    		date,
+    		id
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_emails_target_dest_date
+		ON emails(
+			migration_target_address,
+			dest,
+			date,
+			id
+		);
 		`
 
 func InitialDBSetup(logger *slog.Logger) error {

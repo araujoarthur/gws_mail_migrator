@@ -29,7 +29,8 @@ type migrateOptions struct {
 	orderRaw        string
 	workers         int
 	verbosity       bool
-	deltamigration  bool
+	deltaMigration  bool
+	localEnforce    bool
 	migration_flags migrator.MigrationFlag
 }
 
@@ -74,10 +75,15 @@ func newMigrateCommand() *cobra.Command {
 			// Flags Build Up
 			options.migration_flags = migrator.MigrationFlagEmpty
 
-			if options.deltamigration {
-				options.migration_flags = options.migration_flags | migrator.MigrationFlagModeDelta
+			if options.deltaMigration {
+				options.migration_flags.Set(migrator.MigrationFlagModeDelta)
+				if options.localEnforce {
+					options.migration_flags.Set(migrator.MigrationFlagLocalEnforce)
+				} else {
+					options.migration_flags.Unset(migrator.MigrationFlagLocalEnforce)
+				}
 			} else {
-				options.migration_flags = options.migration_flags | migrator.MigrationFlagModeStandard
+				options.migration_flags.SetN(migrator.MigrationFlagModeStandard, migrator.MigrationFlagLocalEnforce)
 			}
 
 			// order validation
@@ -159,12 +165,18 @@ func newMigrateCommand() *cobra.Command {
 		"enable logging verbosity",
 	)
 
-	flags.BoolVarP(
-		&options.deltamigration,
+	flags.BoolVar(
+		&options.deltaMigration,
 		"delta-migration",
-		"d",
 		false,
 		"enables migration in delta mode",
+	)
+
+	flags.BoolVar(
+		&options.localEnforce,
+		"local-enforce",
+		false,
+		"respect migration status stored in the local database",
 	)
 
 	if err := cmd.MarkFlagRequired("target"); err != nil {
@@ -175,7 +187,7 @@ func newMigrateCommand() *cobra.Command {
 }
 
 func runMigration(ctx context.Context, options migrateOptions) error {
-	logger, loggerCloser, err := logging.New(utils.LOG_FILE_PATH, options.verbosity)
+	logger, loggerCloser, err := logging.New(utils.LOG_FILE_PATH, utils.GetRunID(), options.verbosity)
 	if err != nil {
 		panic(fmt.Errorf("initializing logging capabilities: %w", err))
 	}
@@ -191,7 +203,7 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 		"target_address", options.targetAddress,
 		"verbosity", options.verbosity,
 		"workers", options.workers,
-		"deltamigration", options.deltamigration,
+		"deltaMigration", options.deltaMigration,
 	)
 
 	manager, err := migrator.NewMigrationManager(options.targetAddress, options.destination, options.maxAttempts, commandLogger)
@@ -253,7 +265,7 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 		options.workers,
 	)
 
-	succeeded := migr.SuccessCount()
+	succeeded := migr.MigratedCount()
 	// removes the progress display before printing the summary.
 	if bar != nil {
 		if succeeded == total {
@@ -272,10 +284,10 @@ func runMigration(ctx context.Context, options migrateOptions) error {
 	)
 
 	if runErr != nil {
-		commandLogger.Error("failed during migration run", "error", err)
-		return fmt.Errorf("run migration: %w", err)
+		commandLogger.Error("failed during migration run", "error", runErr)
+		return fmt.Errorf("run migration: %w", runErr)
 	}
 
-	commandLogger.Info("migration completed", "success_count", migr.SuccessCount(), "total", total)
+	commandLogger.Info("migration completed", "migrated_count", migr.MigratedCount(), "total", total, "inserted_count", migr.InsertedCount(), "already_existed_count", migr.AlreadyExistsCount())
 	return nil
 }

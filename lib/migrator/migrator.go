@@ -15,6 +15,7 @@ import (
 
 type EmailInserter interface {
 	InsertRawEML(ctx context.Context, content io.Reader) (impersonator.InsertResult, error)
+	EmailExists(ctx context.Context, messageID string) (bool, error)
 }
 
 type ProgressReporter interface {
@@ -22,12 +23,13 @@ type ProgressReporter interface {
 }
 
 type Migrator struct {
-	manager      *MigrationManager
-	inserter     EmailInserter
-	emlFolder    string
-	logger       *slog.Logger
-	progress     ProgressReporter
-	successCount atomic.Int64
+	manager            *MigrationManager
+	inserter           EmailInserter
+	emlFolder          string
+	logger             *slog.Logger
+	progress           ProgressReporter
+	insertedCount      atomic.Int64
+	alreadyExistsCount atomic.Int64
 }
 
 func NewMigrator(
@@ -50,17 +52,57 @@ func (m *Migrator) Close() error {
 	return m.manager.Close()
 }
 
-// reportProgress provides the means to report progress after a successful operation
-func (m *Migrator) reportSuccess() {
-	m.successCount.Add(1)
+func (m *Migrator) InsertedCount() int64 {
+	return m.insertedCount.Load()
+}
+
+func (m *Migrator) AlreadyExistsCount() int64 {
+	return m.alreadyExistsCount.Load()
+}
+
+func (m *Migrator) MigratedCount() int64 {
+	return m.InsertedCount() + m.AlreadyExistsCount()
+}
+
+// reportOutcome provides the means to report progress after a successful operation
+func (m *Migrator) reportOutcome(outcome MigrationOutcome) error {
+	switch outcome {
+	case MigrationOutcomeInserted:
+		m.insertedCount.Add(1)
+
+	case MigrationOutcomeAlreadyExists:
+		m.alreadyExistsCount.Add(1)
+
+	default:
+		return fmt.Errorf("cannot report migration outcome %s", outcome)
+	}
 
 	if m.progress != nil {
-		m.progress.Add(1)
+		if err := m.progress.Add(1); err != nil {
+			m.logger.Warn("failed to update progress bar", "error", err)
+		}
 	}
+
+	return nil
 }
 
 // migrateEmail provides the logic for the unit of work of migrating one claimed email.
-func (m *Migrator) migrateEmail(ctx context.Context, email Email) error {
+func (m *Migrator) migrateEmail(ctx context.Context, email Email) (MigrationOutcome, error) {
+	if m.manager.migrationFlags.Has(MigrationFlagModeDelta) {
+		exists, err := m.inserter.EmailExists(ctx, email.MessageID)
+		if err != nil {
+			m.logger.Error("failed to migrate email", "step", "check_email_existence", "error", err)
+			return MigrationOutcomeUnknown, fmt.Errorf("check whether email exists remotely: %w", err)
+		}
+
+		if exists {
+			m.logger.Info("email already exists on the mailbox", "email_id", email.ID, "message_id", email.MessageID)
+
+			return MigrationOutcomeAlreadyExists, nil
+		}
+	}
+
+	// Reaches here if either there's no delta import flag or the email in fact does not exist in the mailbox.
 	filename := filepath.Clean(email.Filename)
 	root := filepath.Clean(m.emlFolder)
 
@@ -69,20 +111,20 @@ func (m *Migrator) migrateEmail(ctx context.Context, email Email) error {
 	filename, _ = strings.CutPrefix(filename, prefix)
 
 	if !filepath.IsLocal(filename) {
-		return fmt.Errorf("unsafe email filename %q", email.Filename)
+		return MigrationOutcomeUnknown, fmt.Errorf("unsafe email filename %q", email.Filename)
 	}
 
 	path := filepath.Join(root, filename)
 
 	file, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("open email %q: %w", email.Filename, err)
+		return MigrationOutcomeUnknown, fmt.Errorf("open email %q: %w", email.Filename, err)
 	}
 	defer file.Close()
 
 	result, err := m.inserter.InsertRawEML(ctx, file)
 	if err != nil {
-		return fmt.Errorf("insert email %q: %w", email.Filename, err)
+		return MigrationOutcomeUnknown, fmt.Errorf("insert email %q: %w", email.Filename, err)
 	}
 
 	m.logger.Info(
@@ -94,9 +136,5 @@ func (m *Migrator) migrateEmail(ctx context.Context, email Email) error {
 		"target", email.MigrationTargetAddress,
 	)
 
-	return nil
-}
-
-func (m *Migrator) SuccessCount() int64 {
-	return m.successCount.Load()
+	return MigrationOutcomeInserted, nil
 }

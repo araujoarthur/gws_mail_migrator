@@ -40,7 +40,7 @@ func newSetupCommand() *cobra.Command {
 
 func runSetup(options setupCommandOptions) error {
 
-	logger, logCloser, err := logging.New("./migration.log", options.verbosity)
+	logger, logCloser, err := logging.New("./migration.log", utils.GetRunID(), options.verbosity)
 	if err != nil {
 		panic(fmt.Errorf("initializing logging capabilities: %w", err))
 	}

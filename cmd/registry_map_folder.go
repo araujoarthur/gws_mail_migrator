@@ -96,8 +96,7 @@ func newRegistryMapFolderCommand() *cobra.Command {
 }
 
 func runMapFolder(ctx context.Context, flags mapFolderCommandFlags) error {
-
-	logger, logCloser, err := logging.New("./migration.log", flags.verbosity)
+	logger, logCloser, err := logging.New("./migration.log", utils.GetRunID(), flags.verbosity)
 	if err != nil {
 		panic(fmt.Errorf("initializing logging capabilities: %w", err))
 	}

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/gofrs/uuid/v5"
 )
 
 func FileExists(path string) (bool, error) {
@@ -193,4 +195,19 @@ func isNumericTimezone(value string) bool {
 	}
 
 	return true
+}
+
+func generateRunID() uuid.UUID {
+	runUUID, err := uuid.NewV7()
+	if err != nil {
+		panic(fmt.Errorf("generate run uuid: %w", err))
+	}
+
+	return runUUID
+}
+
+var runUniqueID = generateRunID()
+
+func GetRunID() string {
+	return runUniqueID.String()
 }

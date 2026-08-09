@@ -20,7 +20,7 @@ func (m *Migrator) runWorker(ctx context.Context, workerID int) error {
 			return fmt.Errorf("worker %d claim email: %w", workerID, err)
 		}
 
-		err = m.migrateEmail(ctx, email)
+		outcome, err := m.migrateEmail(ctx, email)
 		if err != nil {
 			markErr := m.manager.MarkFailed(ctx, email.ID)
 			if markErr != nil {
@@ -48,6 +48,8 @@ func (m *Migrator) runWorker(ctx context.Context, workerID int) error {
 			continue
 		}
 
+		m.logger.Info("insertion exited successfully", "outcome", outcome, "outcome_string", outcome.StringRepr())
+
 		// Successfully migrated, marking on database
 		if err := m.manager.MarkMigrated(ctx, email.ID); err != nil {
 			return fmt.Errorf(
@@ -58,7 +60,9 @@ func (m *Migrator) runWorker(ctx context.Context, workerID int) error {
 			)
 		}
 
-		m.reportSuccess()
+		if err := m.reportOutcome(outcome); err != nil {
+			return fmt.Errorf("report outcome for email %d: %w", email.ID, err)
+		}
 
 		if m.logger != nil {
 			m.logger.Info(
