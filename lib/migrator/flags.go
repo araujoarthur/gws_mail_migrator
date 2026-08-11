@@ -12,6 +12,9 @@ const (
 	MigrationFlagOrderNewestFirst
 	MigrationFlagOrderOldestFirst
 	MigrationFlagLocalEnforce
+	MigrationFlagTargetUser
+	MigrationFlagTargetGroup
+	MigrationFlagDryRun
 )
 
 func (m MigrationFlag) Has(mf MigrationFlag) bool {
@@ -19,12 +22,19 @@ func (m MigrationFlag) Has(mf MigrationFlag) bool {
 }
 
 func (m MigrationFlag) Validate() error {
-	if m.Has(MigrationFlagModeDelta) && m.Has(MigrationFlagModeStandard) {
-		return fmt.Errorf("flags MigrationFlagModeDelta and MigrationFlagModeStandard cannot coexist")
+	MigrationModes := MigrationFlagModeDelta | MigrationFlagModeStandard
+	if m.Has(MigrationModes) {
+		return fmt.Errorf("flags 'MigrationFlagModeDelta' and 'MigrationFlagModeStandard' cannot coexist")
 	}
 
-	if m.Has(MigrationFlagOrderNewestFirst) && m.Has(MigrationFlagOrderOldestFirst) {
-		return fmt.Errorf("flags MigrationFlagOrderNewestFirst and MigrationFlagOldestFirst cannot coexist")
+	MigrationOrdering := MigrationFlagOrderNewestFirst | MigrationFlagOrderOldestFirst
+	if m.Has(MigrationOrdering) {
+		return fmt.Errorf("flags 'MigrationFlagOrderNewestFirst' and 'MigrationFlagOldestFirst' cannot coexist")
+	}
+
+	MigrationTargets := MigrationFlagTargetGroup | MigrationFlagTargetUser
+	if m.Has(MigrationTargets) {
+		return fmt.Errorf("flags 'MigrationFlagTargetGroup' and 'MigrationFlagTargetUser' cannot coexist")
 	}
 
 	return nil
@@ -36,6 +46,14 @@ func (m MigrationFlag) GetOrderString() string {
 	}
 
 	return "ASC"
+}
+
+func (m MigrationFlag) GetTargetTypeString() string {
+	if m.Has(MigrationFlagTargetUser) {
+		return "u"
+	}
+
+	return "g"
 }
 
 // Set performs a destructive set on the given flag or flag field

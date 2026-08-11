@@ -111,6 +111,7 @@ func (m *MigrationManager) CountEligible(ctx context.Context) (int64, error) {
 		SELECT COUNT(*)
 		FROM emails
 		WHERE migration_target_address = @target
+			AND target_type = @target_type
 		  	AND (@destination = '' OR dest = @destination)
 			AND (
 				NOT @local_enforce
@@ -125,10 +126,22 @@ func (m *MigrationManager) CountEligible(ctx context.Context) (int64, error) {
 			)
 	`
 
+	m.logger.Debug("counting eligibles",
+		"target_type", m.migrationFlags.GetTargetTypeString(),
+		"target", m.targetAddress,
+		"destination", m.destination,
+		"local_enforce", m.migrationFlags.Has(MigrationFlagLocalEnforce),
+		"pending", StatusPending,
+		"failed", StatusFailed,
+		"max_attempts", m.MaxAttempts,
+		"run_id", m.runID,
+	)
+
 	var count int64
 	err := m.db.QueryRowContext(
 		ctx,
 		query,
+		sql.Named("target_type", m.migrationFlags.GetTargetTypeString()),
 		sql.Named("target", m.targetAddress),
 		sql.Named("destination", m.destination),
 		sql.Named("local_enforce", m.migrationFlags.Has(MigrationFlagLocalEnforce)),
@@ -165,6 +178,7 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		SELECT id
 		FROM emails
 		WHERE migration_target_address = @target
+			AND target_type = @target_type
 			AND (@destination = '' OR dest = @destination)
 			AND (
 				NOT @local_enforce
@@ -190,11 +204,17 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		migration_target_address;
 	`, orderDirection, orderDirection)
 
+	if m.migrationFlags.Has(MigrationFlagDryRun) {
+		m.logger.Debug("dry-run report", "exec_branch", "mark_migrated", "query", query)
+		return Email{}, utils.ErrDryRun
+	}
+
 	var email Email
 
 	err := m.db.QueryRowContext(
 		ctx,
 		query,
+		sql.Named("target_type", m.migrationFlags.GetTargetTypeString()),
 		sql.Named("migrating", StatusMigrating),
 		sql.Named("pending", StatusPending),
 		sql.Named("failed", StatusFailed),
@@ -235,6 +255,11 @@ func (m *MigrationManager) MarkMigrated(ctx context.Context, id int64) error {
 	  AND migration_status = ?;
 	`
 
+	if m.migrationFlags.Has(MigrationFlagDryRun) {
+		m.logger.Debug("dry-run report", "exec_branch", "mark_migrated", "query", query, "args_id", id)
+		return utils.ErrDryRun
+	}
+
 	result, err := m.db.ExecContext(ctx, query, StatusMigrated, id, StatusMigrating)
 	if err != nil {
 		return fmt.Errorf("mark email %d migrated: %w", id, err)
@@ -271,6 +296,11 @@ func (m *MigrationManager) MarkFailed(
 		WHERE id = ?
 		  AND migration_status = ?;
 	`
+
+	if m.migrationFlags.Has(MigrationFlagDryRun) {
+		m.logger.Debug("dry-run report", "exec_branch", "mark_failed", "query", query, "args_id", id)
+		return utils.ErrDryRun
+	}
 
 	result, err := m.db.ExecContext(
 		ctx,
@@ -328,9 +358,21 @@ func (m *MigrationManager) AddEmail(
 			date,
 			migration_target_address,
 			migration_status,
+			target_type,
 			retry_count
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+		VALUES (
+			@message_id, 
+			@filename, 
+			@filehash, 
+			@sender, 
+			@dest, 
+			@date, 
+			@migration_target,
+			@migration_status,
+			@target_type,
+			0
+		)
 		ON CONFLICT (
 			file_hash,
 			dest,
@@ -340,19 +382,35 @@ func (m *MigrationManager) AddEmail(
 		RETURNING id;
 	`
 
+	if m.migrationFlags.Has(MigrationFlagDryRun) {
+		m.logger.Debug("dry-run report",
+			"query", query,
+			"email_message_id", email.MessageID,
+			"email_filename", email.Filename,
+			"email_filehash", email.FileHash,
+			"email_sender", email.Sender,
+			"email_destination", email.Destination,
+			"email_date", email.Date.Format(time.RFC3339Nano),
+			"email_migration_target_address", email.MigrationTargetAddress,
+			"email_target_type_string", m.migrationFlags.GetTargetTypeString(),
+		)
+		return 0, utils.ErrDryRun
+	}
+
 	var id int64
 
 	err := m.db.QueryRowContext(
 		ctx,
 		query,
-		email.MessageID,
-		email.Filename,
-		email.FileHash,
-		email.Sender,
-		email.Destination,
-		email.Date.Format(time.RFC3339Nano),
-		email.MigrationTargetAddress,
-		StatusPending,
+		sql.Named("message_id", email.MessageID),
+		sql.Named("filename", email.Filename),
+		sql.Named("filehash", email.FileHash),
+		sql.Named("sender", email.Sender),
+		sql.Named("dest", email.Destination),
+		sql.Named("date", email.Date.Format(time.RFC3339Nano)),
+		sql.Named("migration_target", email.MigrationTargetAddress),
+		sql.Named("migration_status", StatusPending),
+		sql.Named("target_type", m.migrationFlags.GetTargetTypeString()),
 	).Scan(&id)
 
 	if errors.Is(err, sql.ErrNoRows) {

@@ -1,4 +1,4 @@
-package impersonator
+package gapismanager
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ type insertMetadata struct {
 	LabelIDs []string `json:"labelIds"`
 }
 
-func createMultipartBody(content io.Reader, labelIDs []string) (*io.PipeReader, string) {
+func CreateMultipartBody(content io.Reader, labelIDs []string) (*io.PipeReader, string) {
 	reader, writer := io.Pipe()
 	multipartWriter := multipart.NewWriter(writer)
 

@@ -10,11 +10,14 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/araujoarthur/gws_mail_migrator/lib/impersonator"
+	"github.com/araujoarthur/gws_mail_migrator/lib/mailinserter"
 )
 
 type EmailInserter interface {
-	InsertRawEML(ctx context.Context, content io.Reader) (impersonator.InsertResult, error)
+	InsertRawEML(ctx context.Context, content io.Reader) (mailinserter.InsertResult, error)
+}
+
+type EmailExistenceChecker interface {
 	EmailExists(ctx context.Context, messageID string) (bool, error)
 }
 
@@ -25,6 +28,7 @@ type ProgressReporter interface {
 type Migrator struct {
 	manager            *MigrationManager
 	inserter           EmailInserter
+	checker            EmailExistenceChecker
 	emlFolder          string
 	logger             *slog.Logger
 	progress           ProgressReporter
@@ -32,9 +36,12 @@ type Migrator struct {
 	alreadyExistsCount atomic.Int64
 }
 
+// NewMigrator returns a pointer to a Migrator allocation. The inserter and checker separated fields exist to account for groups vs. users insertions.
+// in the scenario of an user migration, the checker should be the same instance as the inserter.
 func NewMigrator(
 	manager *MigrationManager,
 	inserter EmailInserter,
+	checker EmailExistenceChecker,
 	emlFolder string,
 	logger *slog.Logger,
 	progress ProgressReporter,
@@ -42,6 +49,7 @@ func NewMigrator(
 	return &Migrator{
 		manager:   manager,
 		inserter:  inserter,
+		checker:   checker,
 		emlFolder: emlFolder,
 		logger:    logger.With("component", "migrator"),
 		progress:  progress,
@@ -89,7 +97,7 @@ func (m *Migrator) reportOutcome(outcome MigrationOutcome) error {
 // migrateEmail provides the logic for the unit of work of migrating one claimed email.
 func (m *Migrator) migrateEmail(ctx context.Context, email Email) (MigrationOutcome, error) {
 	if m.manager.migrationFlags.Has(MigrationFlagModeDelta) {
-		exists, err := m.inserter.EmailExists(ctx, email.MessageID)
+		exists, err := m.checker.EmailExists(ctx, email.MessageID)
 		if err != nil {
 			m.logger.Error("failed to migrate email", "step", "check_email_existence", "error", err)
 			return MigrationOutcomeUnknown, fmt.Errorf("check whether email exists remotely: %w", err)
@@ -128,7 +136,7 @@ func (m *Migrator) migrateEmail(ctx context.Context, email Email) (MigrationOutc
 	}
 
 	m.logger.Info(
-		"gmail inserted local email",
+		"inserted local email",
 		"email_id", email.ID,
 		"result_id", result.ID,
 		"result_thread_id", result.ThreadID,

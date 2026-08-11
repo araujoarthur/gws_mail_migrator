@@ -22,6 +22,8 @@ const schemaEmailsTable = `
 			migration_target_address TEXT NOT NULL,
 			migration_status INTEGER NOT NULL DEFAULT 0
 				CHECK (migration_status IN (0, 1, 2, 3)),
+			target_type CHAR NOT NULL
+				CHECK (target_type IN ('g', 'u')),
 			retry_count INTEGER NOT NULL DEFAULT 0,
 			last_claim_run_id TEXT,
 

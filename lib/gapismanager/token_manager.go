@@ -1,4 +1,4 @@
-package impersonator
+package gapismanager
 
 import (
 	"context"
@@ -12,12 +12,15 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
 )
 
 const (
@@ -25,21 +28,30 @@ const (
 )
 
 type TokenManager struct {
-	mu          sync.RWMutex
-	accessToken string
-	expiry      time.Time
-	renewing    bool
-	targetUser  string
-	scopes      string
-	renewChan   chan struct{} // channel used to broadcast renewal signals
-	credentials SACredentials
-	logger      *slog.Logger
+	mu                  sync.RWMutex
+	accessToken         string
+	expiry              time.Time
+	renewing            bool
+	impersonationTarget string
+	scopes              string
+	renewChan           chan struct{} // channel used to broadcast renewal signals
+	credentials         SACredentials
+	logger              *slog.Logger
 }
 
-func NewTokenManager() *TokenManager {
-	return &TokenManager{
-		renewChan: make(chan struct{}),
+func NewTokenManager(impersonationTarget string, scopes string, logger *slog.Logger) (*TokenManager, error) {
+	credentials, err := LoadCredentialsFile(utils.CREDENTIALS_PATH)
+	if err != nil {
+		return nil, fmt.Errorf("loading credentials file: %w", err)
 	}
+
+	return &TokenManager{
+		renewChan:           make(chan struct{}),
+		logger:              logger.With("component", "token-manager"),
+		credentials:         credentials,
+		scopes:              scopes,
+		impersonationTarget: impersonationTarget,
+	}, nil
 }
 
 func (tm *TokenManager) GetValidToken(ctx context.Context) (string, error) {
@@ -83,7 +95,7 @@ func (tm *TokenManager) GetValidToken(ctx context.Context) (string, error) {
 	currentRenewChan := tm.renewChan
 	tm.mu.Unlock()
 
-	newToken, newExpiry, err := tm.fetchNewTokenFromAPI(ctx, tm.targetUser, tm.scopes)
+	newToken, newExpiry, err := tm.fetchNewTokenFromAPI(ctx, tm.impersonationTarget, tm.scopes)
 	tm.mu.Lock()
 	if err != nil {
 		return "", err
@@ -116,6 +128,7 @@ type jwtClaims struct {
 }
 
 func (tm *TokenManager) fetchNewTokenFromAPI(ctx context.Context, target string, scopes string) (string, time.Time, error) {
+	tm.logger.Debug("fetching token", "target", target, "scopes", scopes)
 
 	block, _ := pem.Decode([]byte(tm.credentials.PrivateKey))
 	if block == nil {
@@ -192,6 +205,20 @@ func (tm *TokenManager) fetchNewTokenFromAPI(ctx context.Context, target string,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		tm.logger.Error("failed to fetch token")
+
+		responseBody, readErr := io.ReadAll(
+			io.LimitReader(resp.Body, 1<<20),
+		)
+		if readErr != nil {
+			tm.logger.Error("failed to read token request's response body")
+			return "", time.Time{}, fmt.Errorf("token endpoint returned %s; read response body: %w", resp.Status, readErr)
+		}
+
+		responseBodyText := strings.TrimSpace(string(responseBody))
+
+		requestLogger := tm.logger.WithGroup("request")
+		requestLogger.Info("token fetching response", "status_code", resp.StatusCode, "status", resp.Status, "body", responseBodyText)
 		return "", time.Time{}, fmt.Errorf("token endpoint returned non-200 status: %d", resp.StatusCode)
 	}
 

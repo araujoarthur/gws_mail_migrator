@@ -2,12 +2,13 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/araujoarthur/gws_mail_migrator/lib/impersonator"
 	"github.com/araujoarthur/gws_mail_migrator/lib/logging"
+	"github.com/araujoarthur/gws_mail_migrator/lib/mailinserter"
 	"github.com/araujoarthur/gws_mail_migrator/lib/migrator"
 	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
 	"github.com/schollz/progressbar/v3"
@@ -15,17 +16,18 @@ import (
 )
 
 type migrateUserOptions struct {
-	targetAddress   string
-	destination     string
-	maxAttempts     int
-	limit           int
-	limitSet        bool
-	orderRaw        string
-	workers         int
-	verbosity       bool
-	deltaMigration  bool
-	localEnforce    bool
-	migration_flags migrator.MigrationFlag
+	targetAddress  string
+	destination    string
+	maxAttempts    int
+	limit          int
+	limitSet       bool
+	orderRaw       string
+	workers        int
+	verbosity      bool
+	deltaMigration bool
+	localEnforce   bool
+	dryRun         bool
+	migrationFlags migrator.MigrationFlag
 }
 
 func newMigrateUserCommand() *cobra.Command {
@@ -70,17 +72,24 @@ func newMigrateUserCommand() *cobra.Command {
 			}
 
 			// Flags Build Up
-			options.migration_flags = migrator.MigrationFlagEmpty
+			options.migrationFlags = migrator.MigrationFlagEmpty
+
+			options.migrationFlags.Set(migrator.MigrationFlagTargetUser)
+			options.migrationFlags.Unset(migrator.MigrationFlagTargetGroup)
+
+			if options.dryRun {
+				options.migrationFlags.Set(migrator.MigrationFlagDryRun)
+			}
 
 			if options.deltaMigration {
-				options.migration_flags.Set(migrator.MigrationFlagModeDelta)
+				options.migrationFlags.Set(migrator.MigrationFlagModeDelta)
 				if options.localEnforce {
-					options.migration_flags.Set(migrator.MigrationFlagLocalEnforce)
+					options.migrationFlags.Set(migrator.MigrationFlagLocalEnforce)
 				} else {
-					options.migration_flags.Unset(migrator.MigrationFlagLocalEnforce)
+					options.migrationFlags.Unset(migrator.MigrationFlagLocalEnforce)
 				}
 			} else {
-				options.migration_flags.SetN(migrator.MigrationFlagModeStandard, migrator.MigrationFlagLocalEnforce)
+				options.migrationFlags.SetN(migrator.MigrationFlagModeStandard, migrator.MigrationFlagLocalEnforce)
 			}
 
 			// order validation
@@ -90,9 +99,9 @@ func newMigrateUserCommand() *cobra.Command {
 
 			switch options.orderRaw {
 			case "oldest":
-				options.migration_flags = options.migration_flags | migrator.MigrationFlagOrderOldestFirst
+				options.migrationFlags = options.migrationFlags | migrator.MigrationFlagOrderOldestFirst
 			case "newest":
-				options.migration_flags = options.migration_flags | migrator.MigrationFlagOrderNewestFirst
+				options.migrationFlags = options.migrationFlags | migrator.MigrationFlagOrderNewestFirst
 
 			default:
 				return fmt.Errorf(
@@ -111,23 +120,26 @@ func newMigrateUserCommand() *cobra.Command {
 
 	flags := cmd.Flags()
 
-	flags.StringVar(
+	flags.StringVarP(
 		&options.targetAddress,
 		"target",
+		"t",
 		"",
 		"mailbox that will receive the migrated emails",
 	)
 
-	flags.StringVar(
+	flags.StringVarP(
 		&options.destination,
 		"dest",
+		"d",
 		"",
 		"only migrate emails with this original destination",
 	)
 
-	flags.StringVar(
+	flags.StringVarP(
 		&options.orderRaw,
 		"order",
+		"o",
 		"newest",
 		"migration order: 'newest' or 'oldest'",
 	)
@@ -176,6 +188,13 @@ func newMigrateUserCommand() *cobra.Command {
 		"respect migration status stored in the local database",
 	)
 
+	flags.BoolVar(
+		&options.dryRun,
+		"dry-run",
+		false,
+		"performs a dry run",
+	)
+
 	if err := cmd.MarkFlagRequired("target"); err != nil {
 		panic(err)
 	}
@@ -190,7 +209,7 @@ func runMigration(ctx context.Context, options migrateUserOptions) error {
 	}
 	defer loggerCloser()
 
-	commandLogger := logger.With("command", "migrate")
+	commandLogger := logger.With("command", "migrate-user")
 	commandLogger.Debug("migrate ran with options",
 		"destination", options.destination,
 		"limit", options.limit,
@@ -201,16 +220,17 @@ func runMigration(ctx context.Context, options migrateUserOptions) error {
 		"verbosity", options.verbosity,
 		"workers", options.workers,
 		"deltaMigration", options.deltaMigration,
+		"dryRun", options.dryRun,
 	)
 
 	manager, err := migrator.NewMigrationManager(options.targetAddress, options.destination, options.maxAttempts, commandLogger)
-	if err != nil {
+	if err != nil && !errors.Is(err, utils.ErrDryRun) {
 		return fmt.Errorf("create migration manager: %w", err)
 	}
 	defer manager.Close()
 
 	// Setting manager options
-	if err := manager.SetFromFlags(options.migration_flags); err != nil {
+	if err := manager.SetFromFlags(options.migrationFlags); err != nil {
 		commandLogger.Error("failed to set options from flags", "error", err)
 		return fmt.Errorf("set from flags: %w", err)
 	}
@@ -226,19 +246,18 @@ func runMigration(ctx context.Context, options migrateUserOptions) error {
 		return fmt.Errorf("counting eligibles: %w", err)
 	}
 
+	logger.Info("counted eligibles", "eligibles", total)
 	if total == 0 {
 		return ErrNoEligibleEmails
 	}
 
-	// Creating impersonator
-	imp, err := impersonator.NewImpersonator(
-		utils.CREDENTIALS_PATH,
+	// Creating inserter/checker
+	inserter, err := mailinserter.NewUserMailInserter(
 		options.targetAddress,
-		impersonator.GmailInsertScope+" "+impersonator.GmailReadOnlyScope,
 		commandLogger,
 	)
 	if err != nil {
-		return fmt.Errorf("create the impersonator: %w", err)
+		return fmt.Errorf("create the inserter/checker: %w", err)
 	}
 
 	var reporter migrator.ProgressReporter
@@ -255,7 +274,11 @@ func runMigration(ctx context.Context, options migrateUserOptions) error {
 		reporter = bar
 	}
 
-	migr := migrator.NewMigrator(manager, imp, utils.EMAILS_ROOT_PATH, logger, reporter)
+	migr := migrator.NewMigrator(manager, inserter, inserter, utils.EMAILS_ROOT_PATH, logger, reporter)
+
+	if options.dryRun {
+		return utils.ErrDryRun
+	}
 
 	runErr := migr.Run(
 		ctx,

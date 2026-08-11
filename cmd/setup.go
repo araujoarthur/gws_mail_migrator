@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/araujoarthur/gws_mail_migrator/lib/impersonator"
+	"github.com/araujoarthur/gws_mail_migrator/lib/gapismanager"
 	"github.com/araujoarthur/gws_mail_migrator/lib/logging"
 	"github.com/araujoarthur/gws_mail_migrator/lib/migrator"
 	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
@@ -61,7 +61,7 @@ func runSetup(options setupCommandOptions) error {
 	}
 
 	// Verify Credentials.json fields
-	if _, err := impersonator.LoadCredentialsFile(utils.CREDENTIALS_PATH); err != nil {
+	if _, err := gapismanager.LoadCredentialsFile(utils.CREDENTIALS_PATH); err != nil {
 		commandLogger.Error("failed to load and verify credentials file", "error", err)
 		return fmt.Errorf("loading and verifying the credentials file: %w", err)
 	}

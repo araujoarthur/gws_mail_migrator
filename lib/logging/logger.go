@@ -17,7 +17,7 @@ func New(path string, runID string, verbose bool) (*slog.Logger, func() error, e
 	}
 
 	var writer io.Writer = file
-	level := slog.LevelInfo
+	level := slog.LevelDebug
 
 	if verbose {
 		writer = io.MultiWriter(file, os.Stdout)

@@ -12,6 +12,7 @@ func newRegistryCommand() *cobra.Command {
 
 	cmd.AddCommand(newRegistryResetCommand())
 	cmd.AddCommand(newRegistryMapCommand())
+	cmd.AddCommand(newRegistryRecoverCommand())
 
 	return cmd
 }
