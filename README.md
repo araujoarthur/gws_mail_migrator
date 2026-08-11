@@ -37,8 +37,7 @@ Help can be found by running `gmm.exe help` while I don't write a more extensive
 6. Click in 'Manage Domain Wide Delegation' (enable it if not enabled yet) then 'Add New'.
 7. Paste the 'Client ID' noted in the account creation in the first field, and the scopes noted at the beginning of this file comma separated in the second field.
 
-> [!NOTE] 
-> **If your organization was created after May 3, 2024**
+> [!NOTE] **If your organization was created after May 3, 2024**
 > You might need to disable the enforcement of the `iam.disableServiceAccountKeyCreation` and `iam.managed.disableServiceAccountKeyCreation`
 > When doing so, select the project you created for this purpose and **disable the enforcement only for this project**.
 
