@@ -1,0 +1,13 @@
+package cmd
+
+import "fmt"
+
+const (
+	APPLICATION_VERSION_MAJOR = 0x0001
+	APPLICATION_VERSION_MINOR = 0x0000
+	APPLICATION_VERSION_PATCH = 0x0000
+)
+
+func applicationVersion() string {
+	return fmt.Sprintf("%d.%d.%d", APPLICATION_VERSION_MAJOR, APPLICATION_VERSION_MINOR, APPLICATION_VERSION_PATCH)
+}

@@ -5,8 +5,9 @@ import "github.com/spf13/cobra"
 func newRegistryCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "registry",
-		Short:         "Entry point for management of the email registry database",
+		Short:         "Management of the email registry database",
 		SilenceErrors: true,
+		GroupID:       "management",
 	}
 
 	cmd.AddCommand(newRegistryResetCommand())

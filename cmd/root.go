@@ -19,9 +19,20 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 	}
 
+	cmd.AddGroup(&cobra.Group{
+		ID:    "migration",
+		Title: "Migration Commands",
+	})
+
+	cmd.AddGroup(&cobra.Group{
+		ID:    "management",
+		Title: "Management Commands",
+	})
+
 	cmd.AddCommand(newMigrateCommand())
 	cmd.AddCommand(newSetupCommand())
 	cmd.AddCommand(newRegistryCommand())
+	cmd.AddCommand(newVersionCommand())
 
 	return cmd
 }

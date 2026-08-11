@@ -19,8 +19,9 @@ func newSetupCommand() *cobra.Command {
 	var options setupCommandOptions
 
 	comd := &cobra.Command{
-		Use:   "setup",
-		Short: "Initializes the migration dependencies",
+		Use:     "setup",
+		Short:   "Initializes the migration dependencies",
+		GroupID: "management",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSetup(options)
 		},
