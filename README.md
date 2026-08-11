@@ -29,7 +29,7 @@ Help can be found by running `gmm.exe help` while I don't write a more extensive
 2. Enable the GMail API and Groups Migration API
 3. Go to 'IAM & Admin -> Service Accounts' and create a Service Account.
 
->[!warn] Attention
+> [!warn] Attention
 > Do not provide roles to the service account. The access will be provided by domain-wide delegation.
 
 4. Take note of the OAuth Client ID of the account just created.
@@ -37,9 +37,9 @@ Help can be found by running `gmm.exe help` while I don't write a more extensive
 6. Click in 'Manage Domain Wide Delegation' (enable it if not enabled yet) then 'Add New'.
 7. Paste the 'Client ID' noted in the account creation in the first field, and the scopes noted at the beginning of this file comma separated in the second field.
 
->[!info] If your organization was created after May 3, 2024
->You might need to disable the enforcement of the `iam.disableServiceAccountKeyCreation` and `iam.managed.disableServiceAccountKeyCreation`
->When doing so, select the project you created for this purpose and **disable the enforcement only for this project**.
+> [!info] If your organization was created after May 3, 2024
+> You might need to disable the enforcement of the `iam.disableServiceAccountKeyCreation` and `iam.managed.disableServiceAccountKeyCreation`
+ >When doing so, select the project you created for this purpose and **disable the enforcement only for this project**.
 
 8. Go to 'IAM & Admin -> Service Accounts', select the service account you created and go to the 'Keys' tab and create a new JSON key. The key will be auto downloaded. Get that file and put it in the same folder as the `gmm.exe`. Rename it to `credentials.json`.
 9. Run the `gmm.exe setup` command.
