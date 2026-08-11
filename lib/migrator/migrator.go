@@ -74,7 +74,7 @@ func (m *Migrator) reportOutcome(outcome MigrationOutcome) error {
 		m.alreadyExistsCount.Add(1)
 
 	default:
-		return fmt.Errorf("cannot report migration outcome %s", outcome)
+		return fmt.Errorf("cannot report migration outcome %d", outcome)
 	}
 
 	if m.progress != nil {
