@@ -1,6 +1,7 @@
 package mailinserter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,7 @@ func NewUserMailInserter(user string, logger *slog.Logger) (*UserMailInserter, e
 	scopes := gapismanager.NewEmptyScopeManager()
 	scopes.Acquire(gapismanager.GmailInsertScope)
 	scopes.Acquire(gapismanager.GmailReadOnlyScope)
+	scopes.Acquire(gapismanager.GmailLabelsScope)
 
 	userMailInserterLogger := logger.With("component", "user_inserter", "user_address", user)
 
@@ -158,4 +160,134 @@ func (u *UserMailInserter) InsertRawEML(
 	}
 
 	return result, nil
+}
+
+func (u *UserMailInserter) GetLabels(ctx context.Context) ([]GmailLabel, error) {
+	token, err := u.tokenManager.GetValidToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get valid token: %w", err)
+	}
+
+	const apiURL = "https://gmail.googleapis.com/gmail/v1/users/me/labels"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create list-labels request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := u.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute list-labels request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if readErr != nil {
+			return nil, fmt.Errorf("Gmail API returned %s; read response: %w", resp.Status, err)
+		}
+
+		return nil, fmt.Errorf("Gmail API returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var result struct {
+		Labels []GmailLabel `json:"labels"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode Gmail labels response: %w", err)
+	}
+
+	return result.Labels, nil
+
+}
+
+func (u *UserMailInserter) FindLabel(ctx context.Context, name string) (GmailLabel, bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return GmailLabel{}, false, errors.New("label name cannot be empty")
+	}
+
+	result, err := u.GetLabels(ctx)
+	if err != nil {
+		return GmailLabel{}, false, fmt.Errorf("get labels: %w", err)
+	}
+	for _, label := range result {
+		if label.Name == name {
+			return label, true, nil
+		}
+	}
+
+	return GmailLabel{}, false, nil
+}
+
+func (u *UserMailInserter) CreateLabel(ctx context.Context, name string) (GmailLabel, error) {
+	if name == "" {
+		return GmailLabel{}, errors.New("label name cannot be empty")
+	}
+
+	token, err := u.tokenManager.GetValidToken(ctx)
+	if err != nil {
+		return GmailLabel{}, fmt.Errorf("get valid token: %w", err)
+	}
+
+	requestBody := struct {
+		Name                  string `json:"name"`
+		LabelListVisibility   string `json:"labelListVisibility"`
+		MessageListVisibility string `json:"messageListVisibility"`
+	}{
+		Name:                  name,
+		LabelListVisibility:   "labelShow",
+		MessageListVisibility: "show",
+	}
+
+	var body bytes.Buffer
+
+	if err := json.NewEncoder(&body).Encode(requestBody); err != nil {
+		return GmailLabel{}, fmt.Errorf("encode create-label request: %w", err)
+	}
+
+	const apiURL = "https://gmail.googleapis.com/gmail/v1/users/me/labels"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, &body)
+	if err != nil {
+		return GmailLabel{}, fmt.Errorf("create Gmail label request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := u.httpClient.Do(req)
+	if err != nil {
+		return GmailLabel{}, fmt.Errorf("execute Gmail label request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if readErr != nil {
+			return GmailLabel{}, fmt.Errorf("Gmail API returned %s; read response: %w", resp.Status, readErr)
+		}
+
+		return GmailLabel{}, fmt.Errorf("Gmail API returned %s: %s", resp.Status, strings.TrimSpace(string(responseBody)))
+	}
+
+	var label GmailLabel
+	if err := json.NewDecoder(resp.Body).Decode(&label); err != nil {
+		return GmailLabel{}, fmt.Errorf("decode created Gmail label: %w", err)
+	}
+
+	if label.ID == "" {
+		return GmailLabel{}, errors.New("Gmail label creation returned no label ID")
+	}
+
+	u.logger.Info(
+		"created Gmail label",
+		"label_id", label.ID,
+		"label_name", label.Name,
+	)
+
+	return label, nil
 }
