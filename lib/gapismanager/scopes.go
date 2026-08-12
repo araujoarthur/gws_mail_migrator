@@ -9,6 +9,7 @@ const (
 	GAPIEmptyScope       GAPIScope = ""
 	GmailInsertScope     GAPIScope = "https://www.googleapis.com/auth/gmail.insert"
 	GmailReadOnlyScope   GAPIScope = "https://www.googleapis.com/auth/gmail.readonly"
+	GmailLabelsScope     GAPIScope = "https://www.googleapis.com/auth/gmail.labels"
 	GroupsMigrationScope GAPIScope = "https://www.googleapis.com/auth/apps.groups.migration"
 )
 
