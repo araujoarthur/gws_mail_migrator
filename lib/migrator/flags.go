@@ -1,6 +1,10 @@
 package migrator
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 type MigrationFlag int
 
@@ -16,6 +20,25 @@ const (
 	MigrationFlagTargetGroup
 	MigrationFlagDryRun
 )
+
+var flagNames = map[MigrationFlag]string{
+	MigrationFlagModeStandard:     "mode_standard",
+	MigrationFlagModeDelta:        "mode_delta",
+	MigrationFlagOrderNewestFirst: "order_newest_first",
+	MigrationFlagOrderOldestFirst: "order_oldest_first",
+	MigrationFlagLocalEnforce:     "local_enforce",
+	MigrationFlagTargetUser:       "target_user",
+	MigrationFlagTargetGroup:      "target_group",
+	MigrationFlagDryRun:           "dry_run",
+}
+
+func (m MigrationFlag) String() string {
+	if name, ok := flagNames[m]; ok {
+		return name
+	}
+
+	return fmt.Sprintf("MigrationFlag(%#x)", uint64(m))
+}
 
 func (m MigrationFlag) Has(mf MigrationFlag) bool {
 	return m&mf != 0
@@ -54,6 +77,24 @@ func (m MigrationFlag) GetTargetTypeString() string {
 	}
 
 	return "g"
+}
+
+func (m MigrationFlag) Names() []string {
+	names := make([]string, 0, len(flagNames))
+
+	for flag, name := range flagNames {
+		if m.Has(flag) {
+			names = append(names, name)
+		}
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+func (m MigrationFlag) NamesString() string {
+	return strings.Join(m.Names(), ", ")
 }
 
 // Set performs a destructive set on the given flag or flag field

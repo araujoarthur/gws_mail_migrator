@@ -58,13 +58,15 @@ const schemaEmailsTable = `
 		);
 		`
 
-func InitialDBSetup(logger *slog.Logger) error {
+func InitialDBSetup(force bool, logger *slog.Logger) error {
 	if exists, err := utils.FileExists(utils.MANAGER_DB_PATH); exists || err != nil {
 		if err != nil {
 			return fmt.Errorf("failed to setup: %w", err)
 		}
 
-		return fmt.Errorf("db file already exists")
+		if !force {
+			return fmt.Errorf("db file already exists")
+		}
 	}
 
 	db, err := sql.Open("sqlite", utils.MANAGER_DB_PATH)

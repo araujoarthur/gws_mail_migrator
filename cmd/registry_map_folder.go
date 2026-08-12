@@ -194,6 +194,9 @@ func runMapFolder(ctx context.Context, options mapFolderOptions) error {
 			continue
 		}
 
+		if _, err := utils.NormalizeEmailFile(&message, commandLogger); err != nil {
+			return fmt.Errorf("normalize email file: %w", err)
+		}
 		mailMessage := migrator.Email{
 			MessageID:              message.MessageID,
 			Filename:               message.Filename,

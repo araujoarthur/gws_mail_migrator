@@ -2,9 +2,11 @@ package utils
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/mail"
 	"os"
@@ -144,6 +146,74 @@ func HashEmailFile(file *os.File) ([]byte, error) {
 	}
 
 	return hash, nil
+}
+
+func NormalizeEmailFile(em *EmailMetadata, logger *slog.Logger) (*EmailMetadata, error) {
+	if em == nil {
+		return em, errors.New("normalize email file: metadata is nil")
+	}
+
+	extension := filepath.Ext(em.Filename)
+	dir := filepath.Dir(em.Filename)
+	newName := hex.EncodeToString(em.FileHash) + extension
+	newPath := filepath.Join(dir, newName)
+
+	// The file is already normalized.
+	if filepath.Clean(em.Filename) == filepath.Clean(newPath) {
+		return em, nil
+	}
+
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	logger.Info("renaming email file", "old_path", em.Filename, "new_path", newPath)
+
+	info, err := os.Stat(newPath)
+	switch {
+	case err == nil:
+		kind := "filesystem object"
+
+		if info.IsDir() {
+			kind = "directory"
+		} else if info.Mode().IsRegular() {
+			kind = "file"
+		}
+
+		err := fmt.Errorf(
+			"destination %s already exists: %q",
+			kind,
+			newPath,
+		)
+
+		logger.Error(
+			"failed to rename email file",
+			"error", err,
+		)
+
+		return em, fmt.Errorf(
+			"normalize email file: %w",
+			err,
+		)
+
+	case errors.Is(err, os.ErrNotExist):
+		// Destination is available; continue.
+
+	default:
+		logger.Error("failed to inspect rename destination", "path", newPath, "error", err)
+		return em, fmt.Errorf("normalize email file: inspect destination %q: %w", newPath, err)
+	}
+
+	if err := os.Rename(em.Filename, newPath); err != nil {
+		logger.Error("failed to rename email file", "old_path", em.Filename, "new_path", newPath, "error", err)
+		return em, fmt.Errorf("rename file: %w", err)
+	}
+
+	em.Filename = newPath
+
+	logger.Info("renamed email file", "path", newPath)
+
+	return em, nil
 }
 
 func ParseSQLiteTime(value string) (time.Time, error) {

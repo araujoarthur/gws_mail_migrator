@@ -6,7 +6,9 @@ import (
 	"io"
 
 	"github.com/araujoarthur/gws_mail_migrator/lib/challenger"
+	"github.com/araujoarthur/gws_mail_migrator/lib/logging"
 	"github.com/araujoarthur/gws_mail_migrator/lib/migrator"
+	"github.com/araujoarthur/gws_mail_migrator/lib/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +34,13 @@ func newRegistryResetCommand() *cobra.Command {
 }
 
 func runResetDB(out io.Writer, acknowledge string) error {
+	logger, loggerCloser, err := logging.New(utils.LOG_FILE_PATH, utils.GetRunID(), true)
+	if err != nil {
+		return err
+	}
+	defer loggerCloser()
+
+	commandLogger := logger.With("command", "registry-reset")
 	if acknowledge == "" {
 		// path for the run without acknowledge code.
 		newChallenge, err := challenger.NewDestructiveChallenge(challenger.ActionResetDatabase)
@@ -59,5 +68,9 @@ func runResetDB(out io.Writer, acknowledge string) error {
 		return err
 	}
 
-	return migrator.ResetDB()
+	if err := migrator.ResetDB(); err != nil {
+		return err
+	}
+
+	return migrator.InitialDBSetup(true, commandLogger)
 }

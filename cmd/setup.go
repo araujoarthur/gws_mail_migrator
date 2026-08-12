@@ -80,7 +80,7 @@ func runSetup(options setupCommandOptions) error {
 	}
 
 	// Run DB Setup
-	if err := migrator.InitialDBSetup(commandLogger.With("exec_branch", "initial-db-setup")); err != nil {
+	if err := migrator.InitialDBSetup(false, commandLogger.With("exec_branch", "initial-db-setup")); err != nil {
 		commandLogger.Error("failed to initialize DB", "error", err)
 		return fmt.Errorf("initial db setup: %w", err)
 	}

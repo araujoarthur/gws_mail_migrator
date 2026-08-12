@@ -27,6 +27,7 @@ type migrateUserOptions struct {
 	deltaMigration bool
 	localEnforce   bool
 	dryRun         bool
+	testRun        bool
 	migrationFlags migrator.MigrationFlag
 }
 
@@ -193,6 +194,14 @@ func newMigrateUserCommand() *cobra.Command {
 		"dry-run",
 		false,
 		"performs a dry run",
+	)
+
+	cmd.Flags().BoolVarP(
+		&options.testRun,
+		"test",
+		"T",
+		false,
+		"displays a textual message explaining the migration to be executed and exits",
 	)
 
 	if err := cmd.MarkFlagRequired("target"); err != nil {

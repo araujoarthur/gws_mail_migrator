@@ -22,6 +22,7 @@ type migrateGroupOptions struct {
 	verbosity      bool
 	limit          int
 	orderRaw       string
+	testRun        bool
 	migrationFlags migrator.MigrationFlag
 }
 
@@ -34,7 +35,7 @@ func newMigrateGroupCommand() *cobra.Command {
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			options.migrationFlags = migrator.MigrationFlagEmpty
 			options.migrationFlags.Set(migrator.MigrationFlagTargetGroup)
-	
+
 			options.orderRaw = strings.TrimSpace(strings.ToLower(options.orderRaw))
 			switch options.orderRaw {
 			case "newest":
@@ -103,6 +104,15 @@ func newMigrateGroupCommand() *cobra.Command {
 		"newest",
 		"order of email insertion ('newest', 'oldest')",
 	)
+
+	cmd.Flags().BoolVarP(
+		&options.testRun,
+		"test",
+		"T",
+		false,
+		"displays a textual message explaining the migration to be executed and exits",
+	)
+
 	return cmd
 }
 
@@ -112,7 +122,6 @@ func runMigrateGroup(ctx context.Context, options migrateGroupOptions) error {
 		panic(fmt.Errorf("initializing logging capabilities: %w", err))
 	}
 	defer loggerCloser()
-
 	commandLogger := logger.With("command", "migrate-group")
 
 	if options.migrationFlags.Has(migrator.MigrationFlagModeDelta) {
@@ -147,9 +156,64 @@ func runMigrateGroup(ctx context.Context, options migrateGroupOptions) error {
 		return fmt.Errorf("counting eligibles: %w", err)
 	}
 
+	if options.testRun {
+		runDescTemplate := `
+		---- RUN DESCRIPTION ----
+		This run would migrate Emails with:
+			- original destination (DEST) set to '%s' in the database
+			- to the account (TARGET) '%s' in the workspace
+		
+
+		To be included in the migration, the email's entry in the database should have the field DEST as '%s' and TARGET as '%s'.
+		The admin email address used for impersonation/token request is %s
+		The operation would migrate the %s emails first.
+		Each eligible entry would have up to %d attempts.
+
+		ENTRY LIMIT: %s
+		DELTA MODE: %t
+		ORDER: %s
+		FLAGS: %X (%b) (%d)
+		STRING REPRESENTATION OF FLAGS SET: %s
+		`
+
+		var entryLimitText string
+		if options.limit > 0 {
+			entryLimitText = fmt.Sprintf("The operation is limited to %d entries", options.limit)
+		} else {
+			entryLimitText = "the operation has NO entry limit"
+		}
+
+		resultingText := fmt.Sprintf(
+			runDescTemplate,
+			options.destAddress,
+			options.groupAddress,
+			options.destAddress,
+			options.groupAddress,
+			options.adminAddress,
+			options.orderRaw,
+			options.maxAttempts,
+			entryLimitText,
+			options.migrationFlags.Has(migrator.MigrationFlagModeDelta),
+			options.orderRaw,
+			options.migrationFlags,
+			options.migrationFlags,
+			options.migrationFlags,
+			options.migrationFlags.NamesString(),
+		)
+
+		commandLogger.Info("ran a test migration", "text", resultingText)
+		fmt.Println(resultingText)
+	}
+
 	logger.Info("counted eligibles", "eligibles", total)
-	if total == 0 {
+	if total == 0 && !options.testRun {
 		return ErrNoEligibleEmails
+	}
+
+	if options.testRun {
+		commandLogger.Info("ran eligible count on test migration", "total", total)
+		fmt.Printf("There would be %d eligible elements\n", total)
+		return nil
 	}
 
 	// Creating only an inserter
