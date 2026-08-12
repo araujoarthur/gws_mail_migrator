@@ -249,6 +249,56 @@ func runMigration(ctx context.Context, options migrateUserOptions) error {
 		return fmt.Errorf("set limit: %w", err)
 	}
 
+	if options.testRun {
+		runDescTemplate := `
+		---- RUN DESCRIPTION ----
+		You are running an USER migration.
+		This run would migrate Emails with:
+			- original destination (DEST) set to '%s' in the database
+			- to the account (TARGET) '%s' in the workspace
+		
+
+		To be included in the migration, the email's entry in the database should have the field DEST as '%s' and TARGET as '%s'.
+		The user email address used for impersonation/token request is %s
+		The operation would migrate the %s emails first.
+		Each eligible entry would have up to %d attempts.
+
+		ENTRY LIMIT: %s
+		DELTA MODE: %t
+		ORDER: %s
+		FLAGS: %X (%b) (%d)
+		STRING REPRESENTATION OF FLAGS SET: %s
+		`
+
+		var entryLimitText string
+		if options.limit > 0 {
+			entryLimitText = fmt.Sprintf("The operation is limited to %d entries", options.limit)
+		} else {
+			entryLimitText = "the operation has NO entry limit"
+		}
+
+		resultingText := fmt.Sprintf(
+			runDescTemplate,
+			options.destination,
+			options.targetAddress,
+			options.destination,
+			options.targetAddress,
+			options.targetAddress,
+			options.orderRaw,
+			options.maxAttempts,
+			entryLimitText,
+			options.migrationFlags.Has(migrator.MigrationFlagModeDelta),
+			options.orderRaw,
+			options.migrationFlags,
+			options.migrationFlags,
+			options.migrationFlags,
+			options.migrationFlags.NamesString(),
+		)
+
+		commandLogger.Info("ran a test migration", "text", resultingText)
+		fmt.Println(resultingText)
+	}
+
 	total, err := manager.CountEligible(ctx)
 	if err != nil {
 		commandLogger.Error("failed to count eligible", "error", err)
@@ -256,8 +306,14 @@ func runMigration(ctx context.Context, options migrateUserOptions) error {
 	}
 
 	logger.Info("counted eligibles", "eligibles", total)
-	if total == 0 {
+	if total == 0 && !options.testRun {
 		return ErrNoEligibleEmails
+	}
+
+	if options.testRun {
+		commandLogger.Info("ran eligible count on test migration", "total", total)
+		fmt.Printf("There would be %d eligible elements\n", total)
+		return nil
 	}
 
 	// Creating inserter/checker

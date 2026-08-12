@@ -159,6 +159,7 @@ func runMigrateGroup(ctx context.Context, options migrateGroupOptions) error {
 	if options.testRun {
 		runDescTemplate := `
 		---- RUN DESCRIPTION ----
+		You are running a GROUP migration.
 		This run would migrate Emails with:
 			- original destination (DEST) set to '%s' in the database
 			- to the account (TARGET) '%s' in the workspace
