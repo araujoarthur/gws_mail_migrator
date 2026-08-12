@@ -44,10 +44,10 @@ func newMigrateUserCommand() *cobra.Command {
 
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			options.targetAddress = strings.TrimSpace(
-				options.targetAddress,
+				strings.ToLower(options.targetAddress),
 			)
 			options.destination = strings.TrimSpace(
-				options.destination,
+				strings.ToLower(options.destination),
 			)
 
 			// target validation

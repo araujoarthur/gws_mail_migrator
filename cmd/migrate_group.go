@@ -33,6 +33,16 @@ func newMigrateGroupCommand() *cobra.Command {
 		Use:   "group",
 		Short: "Migrate pending emails to a target group's archive",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			options.groupAddress = strings.TrimSpace(
+				strings.ToLower(options.groupAddress),
+			)
+			options.destAddress = strings.TrimSpace(
+				strings.ToLower(options.destAddress),
+			)
+			options.adminAddress = strings.TrimSpace(
+				strings.ToLower(options.adminAddress),
+			)
+
 			options.migrationFlags = migrator.MigrationFlagEmpty
 			options.migrationFlags.Set(migrator.MigrationFlagTargetGroup)
 
