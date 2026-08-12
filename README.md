@@ -49,3 +49,8 @@ Help can be found by running `gmm.exe help` while I don't write a more extensive
 11. Finally, migrate them using either `gmm.exe migrate user` or `gmm.exe migrate group`.
 
 ### Commands Specifications
+
+#### Management Commands
+
+##### `setup`
+The setup command is used to create the database file and init the schema and create the `./emls` root folder if it does not exist.
