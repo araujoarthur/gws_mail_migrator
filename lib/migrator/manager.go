@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,6 +49,7 @@ type Email struct {
 	Destination            string
 	Date                   time.Time
 	MigrationTargetAddress string
+	LabelIDs               []string
 }
 
 func NewMigrationManager(targetAddress string, destination string, maxAttempts int, logger *slog.Logger) (*MigrationManager, error) {
@@ -201,7 +203,8 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		file_hash,
 		sender,
 		dest,
-		migration_target_address;
+		migration_target_address,
+		label_ids;
 	`, orderDirection, orderDirection)
 
 	if m.migrationFlags.Has(MigrationFlagDryRun) {
@@ -210,6 +213,7 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 	}
 
 	var email Email
+	var labelIdsString string
 
 	err := m.db.QueryRowContext(
 		ctx,
@@ -231,6 +235,7 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		&email.Sender,
 		&email.Destination,
 		&email.MigrationTargetAddress,
+		&labelIdsString, // scan the label ids to a string
 	)
 
 	if err != nil {
@@ -242,6 +247,11 @@ func (m *MigrationManager) ClaimNext(ctx context.Context) (Email, error) {
 		}
 
 		return Email{}, fmt.Errorf("claim next email: %w", err)
+	}
+
+	// insert the label ids into the email struct
+	if err := json.Unmarshal([]byte(labelIdsString), &email.LabelIDs); err != nil {
+		return Email{}, fmt.Errorf("decode label IDs for email %d: %w", email.ID, err)
 	}
 
 	return email, nil
@@ -359,6 +369,8 @@ func (m *MigrationManager) AddEmail(
 			migration_target_address,
 			migration_status,
 			target_type,
+			label_ids,
+			insertion_run_id,
 			retry_count
 		)
 		VALUES (
@@ -371,6 +383,8 @@ func (m *MigrationManager) AddEmail(
 			@migration_target,
 			@migration_status,
 			@target_type,
+			@label_ids,
+			@insertion_run_id,
 			0
 		)
 		ON CONFLICT (
@@ -397,9 +411,13 @@ func (m *MigrationManager) AddEmail(
 		return 0, utils.ErrDryRun
 	}
 
-	var id int64
+	labelIDsJSON, err := json.Marshal(email.LabelIDs)
+	if err != nil {
+		return 0, fmt.Errorf("encode label IDs for %q: %w", email.Filename, err)
+	}
 
-	err := m.db.QueryRowContext(
+	var id int64
+	err = m.db.QueryRowContext(
 		ctx,
 		query,
 		sql.Named("message_id", email.MessageID),
@@ -410,6 +428,8 @@ func (m *MigrationManager) AddEmail(
 		sql.Named("date", email.Date.Format(time.RFC3339Nano)),
 		sql.Named("migration_target", email.MigrationTargetAddress),
 		sql.Named("migration_status", StatusPending),
+		sql.Named("label_ids", string(labelIDsJSON)),
+		sql.Named("insertion_run_id", m.runID),
 		sql.Named("target_type", m.migrationFlags.GetTargetTypeString()),
 	).Scan(&id)
 
@@ -459,6 +479,7 @@ func (m *MigrationManager) Close() error {
 	return m.db.Close()
 }
 
+// reserveClaim makes a reservation for a claim in a scenario with limited record count to be migrated
 func (m *MigrationManager) reserveClaim() bool {
 	if m.limit == 0 {
 		return true

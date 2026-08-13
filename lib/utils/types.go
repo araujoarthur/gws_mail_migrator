@@ -8,5 +8,6 @@ type EmailMetadata struct {
 	Sender    string
 	Subject   string
 	FileHash  []byte
+	LabelIDs  []string
 	Date      time.Time
 }

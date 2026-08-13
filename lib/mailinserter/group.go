@@ -40,7 +40,9 @@ func NewGroupMailInserter(groupAddress string, systemUserAddress string, logger 
 	}, nil
 }
 
-func (g *GroupMailInserter) InsertRawEML(ctx context.Context, content io.Reader) (InsertResult, error) {
+// InsertRawEML inserts an email in the archive of a group. The labelIds parameter exists to satisfy the interface but is effectively ignored
+// in this implementation
+func (g *GroupMailInserter) InsertRawEML(ctx context.Context, content io.Reader, labelIds []string) (InsertResult, error) {
 	validToken, err := g.tokenManager.GetValidToken(ctx)
 	if err != nil {
 		g.logger.Error("failed to get valid token for groups migration", "error", err)

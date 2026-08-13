@@ -21,6 +21,7 @@ type mapFolderOptions struct {
 	dest         string
 	verbosity    bool
 	dryRun       bool
+	labelIds     []string
 	optionsFlags migrator.MigrationFlag
 }
 
@@ -130,6 +131,13 @@ func newRegistryMapFolderCommand() *cobra.Command {
 		"performs a dry run",
 	)
 
+	comd.Flags().StringSliceVar(
+		&options.labelIds,
+		"label",
+		nil,
+		"Gmail label ID to apply; may be repeated or comma-separated; case sensitive",
+	)
+
 	return comd
 }
 
@@ -205,6 +213,7 @@ func runMapFolder(ctx context.Context, options mapFolderOptions) error {
 			Destination:            options.dest,
 			Date:                   message.Date,
 			MigrationTargetAddress: options.target,
+			LabelIDs:               options.labelIds,
 		}
 
 		id, err := manager.AddEmail(ctx, mailMessage)
@@ -215,7 +224,7 @@ func runMapFolder(ctx context.Context, options mapFolderOptions) error {
 			continue
 		}
 
-		commandLogger.Info("successfully inserted", "id", id, "index", idx, "filepath", fpath)
+		commandLogger.Info("successfully inserted", "id", id, "index", idx, "old_filepath", fpath)
 	}
 
 	return nil

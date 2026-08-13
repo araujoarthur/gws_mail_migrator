@@ -26,6 +26,8 @@ const schemaEmailsTable = `
 				CHECK (target_type IN ('g', 'u')),
 			retry_count INTEGER NOT NULL DEFAULT 0,
 			last_claim_run_id TEXT,
+			label_ids TEXT NOT NULL DEFAULT '[]',
+			insertion_run_id TEXT NOT NULL,
 
 			UNIQUE (
 				file_hash,

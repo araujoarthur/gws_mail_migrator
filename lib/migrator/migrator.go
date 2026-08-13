@@ -14,7 +14,7 @@ import (
 )
 
 type EmailInserter interface {
-	InsertRawEML(ctx context.Context, content io.Reader) (mailinserter.InsertResult, error)
+	InsertRawEML(ctx context.Context, content io.Reader, labelIds []string) (mailinserter.InsertResult, error)
 }
 
 type EmailExistenceChecker interface {
@@ -130,7 +130,7 @@ func (m *Migrator) migrateEmail(ctx context.Context, email Email) (MigrationOutc
 	}
 	defer file.Close()
 
-	result, err := m.inserter.InsertRawEML(ctx, file)
+	result, err := m.inserter.InsertRawEML(ctx, file, email.LabelIDs)
 	if err != nil {
 		return MigrationOutcomeUnknown, fmt.Errorf("insert email %q: %w", email.Filename, err)
 	}

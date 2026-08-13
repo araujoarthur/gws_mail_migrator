@@ -101,10 +101,7 @@ func (u *UserMailInserter) EmailExists(ctx context.Context, messageID string) (b
 	return len(result.Messages) > 0, nil
 }
 
-func (u *UserMailInserter) InsertRawEML(
-	ctx context.Context,
-	content io.Reader,
-) (InsertResult, error) {
+func (u *UserMailInserter) InsertRawEML(ctx context.Context, content io.Reader, labelIds []string) (InsertResult, error) {
 	validToken, err := u.tokenManager.GetValidToken(ctx)
 	if err != nil {
 		return InsertResult{}, fmt.Errorf(
@@ -113,7 +110,11 @@ func (u *UserMailInserter) InsertRawEML(
 		)
 	}
 
-	body, contentType := gapismanager.CreateMultipartBody(content, []string{"INBOX", "UNREAD"})
+	if labelIds == nil {
+		labelIds = []string{"INBOX", "UNREAD"}
+	}
+
+	body, contentType := gapismanager.CreateMultipartBody(content, labelIds)
 	defer body.Close()
 
 	const apiURL = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages" +
